@@ -24,11 +24,12 @@ import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Vistas: 5 en la barra inferior; Compras y Perfil desde la barra superior. */
+/** Vistas: 5 en la barra inferior (como los favoritos por defecto de la web); Planificado, Compras y Perfil desde la barra superior. */
 private enum class Tab(val title: String, val icon: ImageVector, val bottom: Boolean = true, val short: String = title) {
-    HOME("Inicio", Icons.Outlined.Home), TX("Movimientos", Icons.Outlined.ReceiptLong, short = "Movimientos"),
-    PLAN("Planificado", Icons.Outlined.EventRepeat, short = "Planificado"),
+    HOME("Inicio", Icons.Outlined.Home), TX("Movimientos", Icons.Outlined.ReceiptLong, short = "Historial"),
+    ANALYSIS("Análisis", Icons.Outlined.Insights),
     BUDGET("Presupuesto y metas", Icons.Outlined.PieChart, short = "Metas"), WALLETS("Billeteras", Icons.Outlined.AccountBalanceWallet),
+    PLAN("Planificado", Icons.Outlined.EventRepeat, false),
     SHOPPING("Lista de compras", Icons.Outlined.ShoppingCart, false), PROFILE("Perfil", Icons.Outlined.Person, false),
 }
 
@@ -61,7 +62,7 @@ private fun App() {
     val scope = rememberCoroutineScope()
     val snack: (String) -> Unit = { m -> scope.launch { snackbar.showSnackbar(m) } }
     BackHandler(enabled = tab != Tab.HOME) { tab = Tab.HOME }
-    val go: (String) -> Unit = { r -> tab = when (r) { "tx" -> Tab.TX; "plan" -> Tab.PLAN; "budget" -> Tab.BUDGET; "wallets" -> Tab.WALLETS; "profile" -> Tab.PROFILE; else -> Tab.HOME } }
+    val go: (String) -> Unit = { r -> tab = when (r) { "tx" -> Tab.TX; "plan" -> Tab.PLAN; "budget" -> Tab.BUDGET; "wallets" -> Tab.WALLETS; "analysis" -> Tab.ANALYSIS; "profile" -> Tab.PROFILE; else -> Tab.HOME } }
 
     Scaffold(
         topBar = {
@@ -76,6 +77,7 @@ private fun App() {
                 },
                 navigationIcon = { if (!tab.bottom) IconButton(onClick = { tab = Tab.HOME }) { Icon(Icons.Outlined.ArrowBack, "Volver") } },
                 actions = {
+                    IconButton(onClick = { tab = Tab.PLAN }) { Icon(Icons.Outlined.EventRepeat, "Planificado") }
                     IconButton(onClick = { tab = Tab.SHOPPING }) { Icon(Icons.Outlined.ShoppingCart, "Lista de compras") }
                     IconButton(onClick = { tab = Tab.PROFILE }) { Icon(Icons.Outlined.AccountCircle, "Perfil") }
                 },
@@ -100,6 +102,7 @@ private fun App() {
                 Tab.HOME -> HomeScreen(onNewTx = { newType = it }, onOpenTx = { editing = it }, go = go)
                 Tab.TX -> TransactionsScreen { editing = it }
                 Tab.PLAN -> ScheduledScreen(snack)
+                Tab.ANALYSIS -> AnalysisScreen(go)
                 Tab.BUDGET -> BudgetGoalsScreen()
                 Tab.WALLETS -> WalletsScreen(snack)
                 Tab.SHOPPING -> ShoppingScreen()

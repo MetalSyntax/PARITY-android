@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Parity" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#050505</item>
+        <item name="android:windowSplashScreenBackground">#050505</item>
+    </style>
+</resources>

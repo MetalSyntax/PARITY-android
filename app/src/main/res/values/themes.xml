@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- fondo negro OLED de la web también durante el arranque -->
+    <style name="Theme.Parity" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#050505</item>
+    </style>
+</resources>

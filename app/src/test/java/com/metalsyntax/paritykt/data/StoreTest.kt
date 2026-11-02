@@ -99,4 +99,17 @@ class StoreTest {
         assertTrue(Store.encode(d).getJSONArray("transactions").getJSONObject(0).has("receipt"))
         assertTrue(Store.encode(d).getJSONArray("goals").getJSONObject(0).has("contributions"))
     }
+
+    @Test fun analysisMatchesWebRules() {
+        val m = java.time.YearMonth.of(2026, 11)
+        Store.saveTx(tx(TxType.INCOME, 100.0, usd).copy(category = "work"))
+        Store.saveTx(tx(TxType.EXPENSE, 40.0, usd).copy(category = "home"))          // 40 % del ingreso → gasto excesivo
+        repeat(7) { Store.saveTx(tx(TxType.EXPENSE, 2.0, usd).copy(category = "coffee")) } // 7 gastos de 2 → fuga hormiga
+        val a = Store.data.analysis(m)
+        assertEquals(100.0, a.income, 1e-9); assertEquals(54.0, a.expense, 1e-9); assertEquals(46.0, a.net, 1e-9)
+        assertEquals(listOf("home", "coffee"), a.topExpenses.map { it.first.id })
+        assertEquals(listOf(false to "Hogar", true to "Comida rápida y café"), a.leaks.map { it.impulse to it.category })
+        val totals = Store.data.monthlyTotals(m)
+        assertEquals(6, totals.size); assertEquals(m, totals.last().first); assertEquals(100.0, totals.last().second, 1e-9)
+    }
 }
