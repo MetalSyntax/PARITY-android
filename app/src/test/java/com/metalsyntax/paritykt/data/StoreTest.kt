@@ -112,4 +112,26 @@ class StoreTest {
         val totals = Store.data.monthlyTotals(m)
         assertEquals(6, totals.size); assertEquals(m, totals.last().first); assertEquals(100.0, totals.last().second, 1e-9)
     }
+
+    @Test fun editingKeepsOrderAndReorderPersists() {
+        val c = Account(name = "Cash", currency = Currency.USD, balance = 1.0).also(Store::saveAccount)
+        Store.saveAccount(usd.copy(name = "Zelle 2"))                      // editar no la manda al final
+        assertEquals(listOf(usd.id, ves.id, c.id), Store.data.accounts.map { it.id })
+        Store.reorderAccounts(Store.data.accounts.reversed())
+        assertEquals(listOf(c.id, ves.id, usd.id), Store.data.accounts.map { it.id })
+        val reread = Store.decode(Store.encode(Store.data))                  // el orden y el cliente sobreviven al JSON
+        assertEquals(listOf(c.id, ves.id, usd.id), reread.accounts.map { it.id })
+        Store.saveAccount(c.copy(payrollClient = "Acme"))
+        assertEquals("Acme", Store.decode(Store.encode(Store.data)).accounts.first().payrollClient)
+    }
+
+    @Test fun unreadableFileIsSetAsideNotOverwritten() {
+        val dir = Files.createTempDirectory("parity-bad").toFile()
+        Store.initForTest(dir)
+        java.io.File(dir, "parity.json").writeText("{ no es json")
+        Store.load()
+        assertTrue(dir.listFiles()!!.any { it.name.startsWith("parity.unreadable.") && it.readText() == "{ no es json" })
+        Store.saveAccount(Account(name = "Nueva", currency = Currency.USD, balance = 0.0)) // escribir después no toca la copia
+        assertTrue(dir.listFiles()!!.any { it.name.startsWith("parity.unreadable.") && it.readText() == "{ no es json" })
+    }
 }

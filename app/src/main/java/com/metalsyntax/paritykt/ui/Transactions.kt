@@ -1,7 +1,6 @@
 package com.metalsyntax.paritykt.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -36,24 +35,11 @@ fun TxRow(tx: Transaction, onOpen: (Transaction) -> Unit) {
     val sign = when (tx.type) { TxType.EXPENSE -> "-"; TxType.INCOME -> "+"; else -> "" }
     val title = if (transfer) "${d.account(tx.accountId)?.name ?: "?"} → ${d.account(tx.toAccountId)?.name ?: "?"}" else tx.note.ifBlank { c.name }
     val date = runCatching { LocalDate.parse(tx.date.take(10)).format(DateTimeFormatter.ofPattern("d/M/yyyy")) }.getOrDefault("")
-    val shape = RoundedCornerShape(16.dp)
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).tap(onClick = { onOpen(tx) }).clip(shape).background(Surface1).border(1.dp, GlassBorder, shape)
-        .padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-        Bubble(icon(if (transfer) "swap" else c.icon), if (transfer) Color(0xFF818CF8) else catColor(c))
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${tx.originalCurrency} • ${(d.account(tx.accountId)?.name ?: "").uppercase(ES)} • $date", style = MaterialTheme.typography.labelSmall,
-                color = Muted.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if ((tx.fee ?: 0.0) > 0) Text("${t("commissions")}: ${num(tx.fee!!)} ${symbol(tx.originalCurrency)}", style = MaterialTheme.typography.labelSmall, color = Color(0xFFF87171))
-        }
-        Spacer(Modifier.width(10.dp))
-        Column(horizontalAlignment = Alignment.End) {
-            Text(if (Prefs.balanceVisible) sign + money(inDisplay(tx.normalizedAmountUSD), Prefs.display) else HIDDEN, style = MaterialTheme.typography.titleSmall,
-                color = color, maxLines = 1)
-            Text("≈ ${secondary(tx.normalizedAmountUSD)}", style = MaterialTheme.typography.labelSmall, color = Muted.copy(alpha = 0.7f), maxLines = 1)
-        }
-    }
+    ListRow(title, subtitle = "${tx.originalCurrency} • ${(d.account(tx.accountId)?.name ?: "").uppercase(ES)} • $date" +
+        if ((tx.fee ?: 0.0) > 0) "\n${t("commissions")}: ${num(tx.fee!!)} ${symbol(tx.originalCurrency)}" else "",
+        icon = icon(if (transfer) "swap" else c.icon), tint = if (transfer) Color(0xFF818CF8) else catColor(c),
+        trailing = if (Prefs.balanceVisible) sign + money(inDisplay(tx.normalizedAmountUSD), Prefs.display) else HIDDEN, trailingColor = color,
+        trailingSub = "≈ ${secondary(tx.normalizedAmountUSD)}") { onOpen(tx) }
 }
 
 private val ALL = "ALL"
@@ -79,24 +65,14 @@ fun TransactionsScreen(nav: Nav) {
         item {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically) {
-                val cur = Prefs.display
-                Box(Modifier.size(44.dp).tap(onClick = Prefs::cycleDisplay).clip(RoundedCornerShape(22.dp)).background(if (cur != Currency.USD) Brand else Surface1)
-                    .border(1.dp, GlassBorder, RoundedCornerShape(22.dp)), contentAlignment = Alignment.Center) {
-                    Text(if (cur == Currency.VES) "Bs" else symbol(cur), color = if (cur != Currency.USD) Color.White else Ink, style = MaterialTheme.typography.labelLarge)
-                }
+                DisplayCurrencyButton()
                 PeriodMenu(period, months, fmt) { period = it }
             }
             ViewHeader(t("transactions"), "${t("fullHistory")} • ${list.size}", nav.back)
         }
         item {
             Column(Modifier.padding(horizontal = 16.dp)) {
-                OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text(t("searchTransactions")) },
-                    leadingIcon = { Icon(Icons.Outlined.Search, null) }, singleLine = true, shape = RoundedCornerShape(20.dp), colors = fieldColors().let {
-                        OutlinedTextFieldDefaults.colors(focusedContainerColor = Surface1, unfocusedContainerColor = Surface1, focusedBorderColor = Brand,
-                            unfocusedBorderColor = GlassBorder, focusedTextColor = Ink, unfocusedTextColor = Ink, cursorColor = Brand,
-                            focusedLeadingIconColor = Muted, unfocusedLeadingIconColor = Muted, focusedPlaceholderColor = Muted, unfocusedPlaceholderColor = Muted)
-                    },
-                    trailingIcon = if (query.isNotEmpty()) { { IconButton(onClick = { query = "" }) { Icon(Icons.Outlined.Close, t("kt_clear"), tint = Muted) } } } else null)
+                SearchField(query, { query = it }, t("searchTransactions"))
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     FilterButton(d.account(wallet)?.name ?: t("wallet"), Icons.Outlined.AccountBalanceWallet, wallet != ALL,
@@ -107,9 +83,9 @@ fun TransactionsScreen(nav: Nav) {
                     FilterButton(if (cat == ALL) t("category") else category(cat).name, Icons.Outlined.PieChart, cat != ALL,
                         listOf(ALL to t("allCategories")) + CATEGORIES.map { it.id to it.name }, cat, Modifier.weight(1f)) { cat = it }
                 }
-                if (active > 0) Text("${t("clearFilters")} ($active)".uppercase(ES), Modifier.padding(top = 10.dp, start = 4.dp).tap(onClick = {
+                if (active > 0) LinkText("${t("clearFilters")} ($active)", modifier = Modifier.padding(top = 6.dp)) {
                     query = ""; type = null; wallet = ALL; period = ALL; cat = ALL
-                }), style = MaterialTheme.typography.labelSmall, color = Brand, letterSpacing = 1.sp)
+                }
             }
         }
         if (list.isEmpty()) item { Empty(Icons.Outlined.ReceiptLong, t("noTransactionsFound"), t("kt_try_other_filters")) }
@@ -130,7 +106,7 @@ private fun PeriodMenu(period: String, months: List<String>, fmt: DateTimeFormat
     var open by remember { mutableStateOf(false) }
     fun label(m: String) = if (m == ALL) t("allPeriods") else runCatching { YearMonth.parse(m).format(fmt).replaceFirstChar { it.uppercase() } }.getOrDefault(m)
     Box {
-        Row(Modifier.height(44.dp).tap(onClick = { open = true }).clip(RoundedCornerShape(22.dp)).background(Surface1).border(1.dp, GlassBorder, RoundedCornerShape(22.dp))
+        Row(Modifier.height(44.dp).tap(onClick = { open = true }).clip(RoundedCornerShape(22.dp)).background(Surface1)
             .padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Outlined.CalendarMonth, null, tint = Brand, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
             Text(label(period), color = Ink, style = MaterialTheme.typography.labelLarge); Spacer(Modifier.width(6.dp))
@@ -217,7 +193,7 @@ fun CategoryStrip(cats: List<Category>, selected: String, onPick: (String) -> Un
             val on = c.id == selected
             val col = catColor(c)
             Column(Modifier.width(76.dp).tap(onClick = { onPick(c.id) }).clip(RoundedCornerShape(16.dp))
-                .background(if (on) col.copy(alpha = 0.18f) else Bg).border(if (on) 2.dp else 1.dp, if (on) col else GlassBorder, RoundedCornerShape(16.dp))
+                .background(if (on) col.copy(alpha = 0.22f) else Bg)
                 .padding(vertical = 10.dp, horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(icon(c.icon), null, tint = col, modifier = Modifier.size(22.dp))
                 Spacer(Modifier.height(6.dp))

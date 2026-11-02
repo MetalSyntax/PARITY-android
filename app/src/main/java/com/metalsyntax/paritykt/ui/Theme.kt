@@ -9,23 +9,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.metalsyntax.paritykt.data.Currency
 
-/** Temas de apps/web/themes.json (mismos nombres y colores). */
-data class Palette(val id: String, val label: String, val bg: Color, val surface: Color, val card: Color, val ink: Color, val muted: Color,
-                   val brand: Color, val brandHover: Color) {
-    val dark get() = bg.luminanceSimple() < 0.5f
+/** Colores resueltos del tema actual (modo + acento). */
+data class Palette(val bg: Color, val surface: Color, val card: Color, val ink: Color, val muted: Color, val brand: Color, val dark: Boolean)
+
+/** Modos como en Pulsix: claro, oscuro (zinc) y negro (OLED, el «Original Dark» de la web). */
+enum class Mode(val key: String, val bg: Long, val surface: Long, val card: Long, val ink: Long, val muted: Long) {
+    LIGHT("kt_mode_light", 0xFFFFFFFF, 0xFFF4F4F5, 0xFFE4E4E7, 0xFF18181B, 0xFF71717A),
+    DARK("kt_mode_dark", 0xFF18181B, 0xFF232327, 0xFF2E2E33, 0xFFFFFFFF, 0xFFA1A1AA),
+    BLACK("kt_mode_black", 0xFF000000, 0xFF121212, 0xFF1E1E1E, 0xFFFFFFFF, 0xFFA1A1AA),
 }
 
-private fun Color.luminanceSimple() = 0.2126f * red + 0.7152f * green + 0.0722f * blue
-private val DARK = arrayOf(Color(0xFF000000), Color(0xFF121212), Color(0xFF1E1E1E), Color.White, Color(0xFFA1A1AA))
-private val LIGHT = arrayOf(Color.White, Color(0xFFF4F4F5), Color(0xFFE4E4E7), Color(0xFF18181B), Color(0xFF71717A))
-private fun p(id: String, label: String, base: Array<Color>, brand: Long, hover: Long) =
-    Palette(id, label, base[0], base[1], base[2], base[3], base[4], Color(brand), Color(hover))
-
-val THEMES = listOf(
-    p("original", "Original Dark", DARK, 0xFF4F46E5, 0xFF4338CA), p("midnight_ocean", "Midnight Ocean", DARK, 0xFF0EA5E9, 0xFF0284C7),
-    p("forest", "Forest", DARK, 0xFF22C55E, 0xFF16A34A), p("light", "Light", LIGHT, 0xFF4F46E5, 0xFF4338CA),
-    p("light_blue", "Light Blue", LIGHT, 0xFF0EA5E9, 0xFF0284C7), p("light_green", "Light Green", LIGHT, 0xFF22C55E, 0xFF16A34A),
-)
+/** Paleta de acento (Tailwind 500/600); el índigo #4f46e5 es el de la web. */
+val ACCENTS = listOf(0xFF4F46E5, 0xFF7C3AED, 0xFF9333EA, 0xFFC026D3, 0xFFDB2777, 0xFFE11D48, 0xFFDC2626, 0xFFEA580C, 0xFFD97706,
+    0xFFCA8A04, 0xFF65A30D, 0xFF16A34A, 0xFF059669, 0xFF0D9488, 0xFF0891B2, 0xFF0284C7, 0xFF2563EB, 0xFF475569).map { Color(it) }
 
 /** Vistas que pueden ir en la barra inferior (como navbarFavorites de la web; Inicio va siempre). */
 enum class Route(val key: String, val webId: String) {
@@ -34,34 +30,75 @@ enum class Route(val key: String, val webId: String) {
     PROFILE("profile", "PROFILE"),
 }
 
+/** Widgets del Inicio que se pueden ocultar y reordenar (Personalizar Dashboard de la web). */
+enum class Widget(val key: String, val on: Boolean = true) {
+    QUICK("quickActions"), BALANCE("totalBalance"), CONVERTER("currencyConverter"), WALLETS("wallets"), EXPENSES("kt_expense_structure"),
+    INCOME_EXPENSE("incomeVsExpenses", false), UPCOMING("kt_next_7_days"), BUDGET("budget"), GOALS("goals"), RECENT("recentTransactions"),
+}
+
 /**
- * Preferencias de interfaz (en la web viven en localStorage, no en el respaldo): tema, barra inferior, ocultar saldo,
- * moneda de visualización. Son estado de Compose: cambiarlas recompone.
+ * Preferencias de interfaz (en la web viven en localStorage, no en el respaldo). Son estado de Compose: cambiarlas recompone.
  */
 object Prefs {
     private lateinit var sp: android.content.SharedPreferences
-    var theme by mutableStateOf(THEMES[0]); private set
+    var mode by mutableStateOf(Mode.BLACK); private set
+    var accent by mutableStateOf(ACCENTS[0]); private set
     var favorites by mutableStateOf(listOf(Route.WALLETS, Route.ANALYSIS, Route.PROFILE)); private set
     var balanceVisible by mutableStateOf(true); private set
     var display by mutableStateOf(Currency.USD); private set
+    var widgets by mutableStateOf(Widget.entries.toList()); private set       // orden
+    var hidden by mutableStateOf(Widget.entries.filter { !it.on }.toSet()); private set
+    var quick by mutableStateOf(QUICK_DEFAULT); private set                    // acciones rápidas, en orden
+    var hideWelcome by mutableStateOf(false); private set
+    var hideName by mutableStateOf(false); private set
+    var txLimit by mutableIntStateOf(6); private set
+    var dev by mutableStateOf(false); private set
+    var onboarded by mutableStateOf(true); private set
+
+    val theme get() = mode.let { m -> Palette(Color(m.bg), Color(m.surface), Color(m.card), Color(m.ink), Color(m.muted), accent, m != Mode.LIGHT) }
+
+    private inline fun <reified E : Enum<E>> list(k: String, def: List<E>): List<E> =
+        sp.getString(k, null)?.split(',')?.mapNotNull { n -> enumValues<E>().firstOrNull { it.name == n } } ?: def
 
     fun init(ctx: Context) {
         sp = ctx.getSharedPreferences("ui", Context.MODE_PRIVATE)
-        theme = THEMES.firstOrNull { it.id == sp.getString("theme", null) } ?: THEMES[0]
-        sp.getString("favorites", null)?.let { s -> favorites = s.split(',').mapNotNull { n -> Route.entries.firstOrNull { it.name == n } } }
+        mode = Mode.entries.firstOrNull { it.name == sp.getString("mode", null) } ?: if (sp.getString("theme", "")!!.startsWith("light")) Mode.LIGHT else Mode.BLACK
+        accent = Color(sp.getLong("accent", ACCENTS[0].value.toLong()).toULong())
+        favorites = list("favorites", favorites)
         balanceVisible = sp.getBoolean("balanceVisible", true)
         display = Currency.entries.firstOrNull { it.name == sp.getString("display", null) } ?: Currency.USD
+        // widgets nuevos que no estaban en el orden guardado van al final
+        widgets = list("widgets", Widget.entries.toList()).let { it + (Widget.entries - it.toSet()) }
+        hidden = list("hidden", hidden.toList()).toSet()
+        quick = list("quick", QUICK_DEFAULT)
+        hideWelcome = sp.getBoolean("hideWelcome", false); hideName = sp.getBoolean("hideName", false)
+        txLimit = sp.getInt("txLimit", 6); dev = sp.getBoolean("dev", false)
+        onboarded = sp.getBoolean("onboarded", sp.contains("theme") || sp.contains("mode")) // instalaciones previas no repiten el onboarding
     }
 
-    fun applyTheme(p: Palette) { theme = p; sp.edit().putString("theme", p.id).apply() }
-    fun saveFavorites(r: List<Route>) { favorites = r.take(3); sp.edit().putString("favorites", favorites.joinToString(",") { it.name }).apply() }
-    fun toggleBalance() { balanceVisible = !balanceVisible; sp.edit().putBoolean("balanceVisible", balanceVisible).apply() }
+    private fun put(k: String, v: Any) = sp.edit().apply {
+        when (v) { is Boolean -> putBoolean(k, v); is Int -> putInt(k, v); is Long -> putLong(k, v); else -> putString(k, v.toString()) }
+    }.apply()
+
+    fun applyMode(m: Mode) { mode = m; put("mode", m.name) }
+    fun applyAccent(c: Color) { accent = c; put("accent", c.value.toLong()) }
+    fun saveFavorites(r: List<Route>) { favorites = r.take(3); put("favorites", favorites.joinToString(",") { it.name }) }
+    fun toggleBalance() { balanceVisible = !balanceVisible; put("balanceVisible", balanceVisible) }
+    @JvmName("applyBalanceVisible") fun setBalanceVisible(v: Boolean) { balanceVisible = v; put("balanceVisible", v) }
+    @JvmName("applyDisplay") fun setDisplay(c: Currency) { display = c; put("display", c.name) }
     /** USD → VES → EUR → USD, como el botón de moneda del balance de la web. */
-    fun cycleDisplay() {
-        display = when (display) { Currency.USD -> Currency.VES; Currency.VES -> Currency.EUR; else -> Currency.USD }
-        sp.edit().putString("display", display.name).apply()
-    }
+    fun cycleDisplay() = setDisplay(when (display) { Currency.USD -> Currency.VES; Currency.VES -> Currency.EUR; else -> Currency.USD })
+    fun saveWidgets(order: List<Widget>) { widgets = order; put("widgets", order.joinToString(",") { it.name }) }
+    fun toggleWidget(w: Widget) { hidden = if (w in hidden) hidden - w else hidden + w; put("hidden", hidden.joinToString(",") { it.name }) }
+    fun saveQuick(r: List<Route>) { quick = r; put("quick", r.joinToString(",") { it.name }) }
+    @JvmName("applyHideWelcome") fun setHideWelcome(v: Boolean) { hideWelcome = v; put("hideWelcome", v) }
+    @JvmName("applyHideName") fun setHideName(v: Boolean) { hideName = v; put("hideName", v) }
+    @JvmName("applyTxLimit") fun setTxLimit(v: Int) { txLimit = v.coerceIn(3, 20); put("txLimit", txLimit) }
+    @JvmName("applyDev") fun setDev(v: Boolean) { dev = v; put("dev", v) }
+    fun finishOnboarding() { onboarded = true; put("onboarded", true) }
 }
+
+val QUICK_DEFAULT = listOf(Route.TX, Route.BUDGET, Route.PLAN, Route.ANALYSIS, Route.WALLETS, Route.GOALS, Route.SHOPPING, Route.PROFILE)
 
 // tokens (var(--…) de la web); leen el tema actual
 val Bg get() = Prefs.theme.bg            // --bg-primary
@@ -71,7 +108,6 @@ val Ink get() = Prefs.theme.ink          // --text-primary
 val Muted get() = Prefs.theme.muted      // --text-secondary
 val Brand get() = Prefs.theme.brand      // --primary
 val Glass get() = Ink.copy(alpha = 0.05f)        // bg-theme-soft
-val GlassBorder get() = Ink.copy(alpha = 0.10f)  // border-theme-soft
 val Income = Color(0xFF10B981)  // text-emerald-500 (CurrencyAmount)
 val Expense = Color(0xFFEF4444) // text-red-500
 val Warning = Color(0xFFF59E0B)

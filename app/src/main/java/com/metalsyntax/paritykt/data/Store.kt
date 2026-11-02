@@ -12,6 +12,10 @@ import java.net.URL
 import java.time.LocalDate
 import java.time.YearMonth
 
+/** Reemplaza en su lugar (conserva el orden) o agrega al final. */
+fun <T> List<T>.upsert(x: T, id: (T) -> Any): List<T> =
+    if (any { id(it) == id(x) }) map { if (id(it) == id(x)) x else it } else this + x
+
 /** Lápida de una transacción borrada: la sincronización mínima la propaga (mismo campo que la web). */
 data class Tombstone(val id: String, val deletedAt: String)
 
@@ -48,13 +52,24 @@ object Store {
 
     fun init(ctx: Context, changed: () -> Unit) {
         file = File(ctx.filesDir, "parity.json")
+        Vault.init(ctx.filesDir)
         onChange = changed
-        data = runCatching { decode(JSONObject(file.readText())) }.getOrDefault(AppData())
+        load()
+    }
+
+    /** Lee parity.json (cifrado o en claro). Un archivo ilegible se aparta, nunca se sobrescribe. */
+    internal fun load() {
+        val bytes = runCatching { file.readBytes() }.getOrNull()
+        val read = bytes?.let { b -> runCatching { decode(JSONObject(String(Vault.open(b)))) } }
+        data = read?.getOrNull() ?: AppData()
+        // nunca pisar un archivo que no se pudo leer: se aparta intacto para recuperarlo
+        if (read?.isFailure == true) file.renameTo(File(file.parentFile, "parity.unreadable.${System.currentTimeMillis()}.json"))
+        if (bytes != null && Vault.enabled && !Vault.sealed(bytes) && data != AppData()) commit(data) // migrar el archivo en claro a cifrado
         postDueScheduled()
     }
 
     /** Para pruebas: archivo en [dir], sin Context. */
-    internal fun initForTest(dir: File) { file = File(dir, "parity.json"); onChange = null; data = AppData(); syncWrites = true }
+    internal fun initForTest(dir: File) { file = File(dir, "parity.json"); onChange = null; data = AppData(); syncWrites = true; Vault.enabled = false }
 
     /** Un solo hilo de escritura: el estado cambia al instante y el archivo se escribe en orden, fuera del hilo principal. */
     private val writer = java.util.concurrent.Executors.newSingleThreadExecutor()
@@ -68,7 +83,7 @@ object Store {
             val latest = pendingWrite ?: return@Runnable
             pendingWrite = null // ráfagas de cambios: se escribe solo el último estado
             val tmp = File(file.path + ".tmp")
-            tmp.writeText(encode(latest).toString())
+            tmp.writeBytes(Vault.seal(encode(latest).toString().toByteArray()))
             tmp.renameTo(file)
         }
         if (syncWrites) job.run() else writer.execute(job)
@@ -77,7 +92,9 @@ object Store {
 
     // ------------------------------------------------------------------------------------------ cuentas
 
-    fun saveAccount(a: Account) = commit(data.copy(accounts = data.accounts.filter { it.id != a.id } + a.copy(updatedAt = nowIso())))
+    fun saveAccount(a: Account) = commit(data.copy(accounts = data.accounts.upsert(a.copy(updatedAt = nowIso())) { it.id }))
+    /** Nuevo orden de las billeteras (arrastrar en Billetera). */
+    fun reorderAccounts(order: List<Account>) = commit(data.copy(accounts = order))
 
     /** No se borra una cuenta con movimientos (quedarían huérfanos). */
     fun deleteAccount(id: String): Boolean {
@@ -97,7 +114,7 @@ object Store {
         if (old != null) accounts = apply(accounts, old, -1.0)
         val fixed = t.copy(updatedAt = nowIso(), normalizedAmountUSD = usd(t.amount, t.originalCurrency), exchangeRate = data.rates.snapshot())
         accounts = apply(accounts, fixed, 1.0)
-        commit(data.copy(accounts = accounts, transactions = data.transactions.filter { it.id != t.id } + fixed))
+        commit(data.copy(accounts = accounts, transactions = data.transactions.upsert(fixed) { it.id }))
     }
 
     fun deleteTx(id: String) {
@@ -131,7 +148,7 @@ object Store {
 
     // ------------------------------------------------------------------------------------------ planificado
 
-    fun saveScheduled(s: ScheduledPayment) = commit(data.copy(scheduled = data.scheduled.filter { it.id != s.id } + s.copy(updatedAt = nowIso())))
+    fun saveScheduled(s: ScheduledPayment) = commit(data.copy(scheduled = data.scheduled.upsert(s.copy(updatedAt = nowIso())) { it.id }))
     fun deleteScheduled(id: String) = commit(data.copy(scheduled = data.scheduled.filter { it.id != id }))
 
     /** Registra el pago como transacción y avanza a la próxima fecha (los de una vez se eliminan). */
@@ -162,14 +179,14 @@ object Store {
 
     // ------------------------------------------------------------------------------------------ presupuesto y metas
 
-    fun saveBudget(b: Budget) = commit(data.copy(budgets = data.budgets.filter { it.categoryId != b.categoryId } + b.copy(updatedAt = nowIso())))
+    fun saveBudget(b: Budget) = commit(data.copy(budgets = data.budgets.upsert(b.copy(updatedAt = nowIso())) { it.categoryId }))
     fun deleteBudget(categoryId: String) = commit(data.copy(budgets = data.budgets.filter { it.categoryId != categoryId }))
-    fun saveGoal(g: Goal) = commit(data.copy(goals = data.goals.filter { it.id != g.id } + g.copy(updatedAt = nowIso(), completed = g.savedAmount >= g.targetAmount)))
+    fun saveGoal(g: Goal) = commit(data.copy(goals = data.goals.upsert(g.copy(updatedAt = nowIso(), completed = g.savedAmount >= g.targetAmount)) { it.id }))
     fun deleteGoal(id: String) = commit(data.copy(goals = data.goals.filter { it.id != id }))
 
     // ------------------------------------------------------------------------------------------ compras
 
-    fun saveList(l: ShoppingList) = commit(data.copy(lists = data.lists.filter { it.id != l.id } + l.copy(updatedAt = nowIso())))
+    fun saveList(l: ShoppingList) = commit(data.copy(lists = data.lists.upsert(l.copy(updatedAt = nowIso())) { it.id }))
     fun deleteList(id: String) = commit(data.copy(lists = data.lists.filter { it.id != id }))
 
     // ------------------------------------------------------------------------------------------ perfil y tasas
@@ -178,18 +195,24 @@ object Store {
     fun setRates(r: Rates) = commit(data.copy(rates = r))
 
     /**
-     * Tasa oficial del BCV (dólar y euro) desde ve.dolarapi.com, la misma fuente que usa la web; solo la oficial.
-     * Bloqueante: llamar fuera del hilo principal. Si el usuario fijó una tasa manual, no se pisa.
+     * Tasas de ve.dolarapi.com (la fuente de la web): oficial BCV y paralela (modo Dev), dólar y euro.
+     * La tasa en uso ([Rates.usd]/[Rates.eur]) es la oficial, o la paralela si el usuario la eligió. La manual no se pisa.
+     * Bloqueante: llamar fuera del hilo principal.
      */
     fun refreshRates(): Rates {
         if (data.rates.manual) return data.rates
-        fun oficial(url: String): Double {
+        fun get(url: String): Map<String, Double> {
             val c = URL(url).openConnection() as HttpURLConnection
             c.connectTimeout = 10_000; c.readTimeout = 10_000
             val a = JSONArray(c.inputStream.bufferedReader().use { it.readText() })
-            return (0 until a.length()).map { a.getJSONObject(it) }.first { it.optString("fuente") == "oficial" }.getDouble("promedio")
+            return (0 until a.length()).map { a.getJSONObject(it) }.associate { it.optString("fuente") to it.optDouble("promedio", 0.0) }
         }
-        val r = Rates(oficial("https://ve.dolarapi.com/v1/dolares"), runCatching { oficial("https://ve.dolarapi.com/v1/euros") }.getOrDefault(0.0), nowIso())
+        val usd = get("https://ve.dolarapi.com/v1/dolares")
+        val eur = runCatching { get("https://ve.dolarapi.com/v1/euros") }.getOrDefault(emptyMap())
+        val par = data.rates.parallel
+        val r = data.rates.copy(bcvUsd = usd["oficial"] ?: 0.0, bcvEur = eur["oficial"] ?: 0.0, usdPar = usd["paralelo"] ?: 0.0,
+            eurPar = eur["paralelo"] ?: 0.0, updatedAt = nowIso()).let { it.copy(usd = if (par && it.usdPar > 0) it.usdPar else it.bcvUsd,
+            eur = if (par && it.eurPar > 0) it.eurPar else it.bcvEur) }
         commit(data.copy(rates = r))
         return r
     }
@@ -226,13 +249,16 @@ object Store {
         .put("goals", JSONArray(d.goals.map(Json::goal)))
         .put("shoppingLists", JSONArray(d.lists.map(Json::list)))
         .put("deletedTransactions", JSONArray(d.tombstones.map { JSONObject().put("id", it.id).put("deletedAt", it.deletedAt) }))
-        .put("rates", JSONObject().put("usd", d.rates.usd).put("eur", d.rates.eur).put("updatedAt", d.rates.updatedAt ?: "").put("manual", d.rates.manual))
+        .put("rates", JSONObject().put("usd", d.rates.usd).put("eur", d.rates.eur).put("updatedAt", d.rates.updatedAt ?: "").put("manual", d.rates.manual)
+            .put("bcvUsd", d.rates.bcvUsd).put("bcvEur", d.rates.bcvEur).put("usdPar", d.rates.usdPar).put("eurPar", d.rates.eurPar).put("parallel", d.rates.parallel))
 
     fun decode(o: JSONObject) = AppData(
         Json.profile(o.optJSONObject("userProfile")),
         Json.arr(o, "accounts", Json::account), Json.arr(o, "transactions", Json::tx), Json.arr(o, "scheduledPayments", Json::scheduled),
         Json.arr(o, "budgets", Json::budget), Json.arr(o, "goals", Json::goal), Json.arr(o, "shoppingLists", Json::list),
         Json.arr(o, "deletedTransactions") { Tombstone(it.getString("id"), it.optString("deletedAt")) },
-        o.optJSONObject("rates")?.let { Rates(it.optDouble("usd", 0.0), it.optDouble("eur", 0.0), it.optString("updatedAt").ifEmpty { null }, it.optBoolean("manual")) } ?: Rates(),
+        o.optJSONObject("rates")?.let { Rates(it.optDouble("usd", 0.0), it.optDouble("eur", 0.0), it.optString("updatedAt").ifEmpty { null }, it.optBoolean("manual"),
+            it.optDouble("bcvUsd", it.optDouble("usd", 0.0)), it.optDouble("bcvEur", it.optDouble("eur", 0.0)), it.optDouble("usdPar", 0.0),
+            it.optDouble("eurPar", 0.0), it.optBoolean("parallel")) } ?: Rates(),
     )
 }

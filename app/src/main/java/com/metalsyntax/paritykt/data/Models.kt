@@ -27,6 +27,7 @@ fun nowIso(): String = Instant.now().toString()
 data class Account(
     val id: String = newId(), val name: String, val currency: Currency, val balance: Double,
     val icon: String = "wallet", val color: String? = null, val updatedAt: String = nowIso(), val extra: JSONObject = JSONObject(),
+    val payrollClient: String? = null, // «Cliente de nómina» de la web
 )
 
 data class Transaction(
@@ -63,7 +64,9 @@ data class ShoppingList(
 data class UserProfile(val id: String = newId(), val name: String = "", val language: String = "es", val updatedAt: String = nowIso(), val extra: JSONObject = JSONObject())
 
 /** Tasas en bolívares: VES por 1 USD (oficial BCV) y VES por 1 EUR. USDT se toma 1:1 con USD. */
-data class Rates(val usd: Double = 0.0, val eur: Double = 0.0, val updatedAt: String? = null, val manual: Boolean = false) {
+/** [usd]/[eur] = tasa en uso; [bcvUsd]/[bcvEur] oficial; [usdPar]/[eurPar] paralela (Dev); [parallel] = usar la paralela. */
+data class Rates(val usd: Double = 0.0, val eur: Double = 0.0, val updatedAt: String? = null, val manual: Boolean = false,
+                 val bcvUsd: Double = usd, val bcvEur: Double = eur, val usdPar: Double = 0.0, val eurPar: Double = 0.0, val parallel: Boolean = false) {
     fun toUsd(amount: Double, c: Currency): Double = when (c) {
         Currency.USD, Currency.USDT -> amount
         Currency.VES -> if (usd > 0) amount / usd else 0.0
@@ -111,10 +114,11 @@ private fun base(extra: JSONObject) = JSONObject().also { r -> extra.keys().forE
 
 object Json {
     fun account(o: JSONObject) = Account(o.getString("id"), o.optString("name"), cur(o.str("currency")), o.optDouble("balance", 0.0),
-        o.optString("icon", "wallet"), o.str("color"), o.str("updatedAt") ?: nowIso(), rest(o, "id", "name", "currency", "balance", "icon", "color", "updatedAt"))
+        o.optString("icon", "wallet"), o.str("color"), o.str("updatedAt") ?: nowIso(), rest(o, "id", "name", "currency", "balance", "icon", "color", "updatedAt", "payrollClient"),
+        o.str("payrollClient")?.takeIf { it.isNotBlank() })
 
     fun account(a: Account) = base(a.extra).put("id", a.id).put("name", a.name).put("currency", a.currency.name).put("balance", a.balance)
-        .put("icon", a.icon).apply { a.color?.let { put("color", it) } }.put("updatedAt", a.updatedAt)
+        .put("icon", a.icon).apply { a.color?.let { put("color", it) }; a.payrollClient?.let { put("payrollClient", it) } }.put("updatedAt", a.updatedAt)
 
     private val TX_KEYS = arrayOf("id", "amount", "originalCurrency", "exchangeRate", "normalizedAmountUSD", "type", "category", "accountId",
         "toAccountId", "note", "date", "fee", "scheduledId", "updatedAt")

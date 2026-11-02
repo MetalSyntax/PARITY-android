@@ -99,10 +99,9 @@ fun AnalysisScreen(nav: Nav) = Column {
     }
 }
 
-private fun pct(v: Double, total: Double) = if (total > 0) "${"%.0f".format(v / total * 100)} %" else "—"
 
 @Composable
-private fun IncomeExpenseBars(data: List<Triple<YearMonth, Double, Double>>) {
+fun IncomeExpenseBars(data: List<Triple<YearMonth, Double, Double>>) {
     val max = data.maxOf { maxOf(it.second, it.third) }.takeIf { it > 0 } ?: 1.0
     val desc = data.joinToString("; ") { "${it.first.format(shortFmt)}: ${t("income")} ${money(it.second)}, ${t("expenses")} ${money(it.third)}" }
     Canvas(Modifier.fillMaxWidth().height(140.dp).semantics { contentDescription = desc }) {

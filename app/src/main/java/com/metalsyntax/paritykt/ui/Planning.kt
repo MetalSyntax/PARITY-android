@@ -1,28 +1,42 @@
 package com.metalsyntax.paritykt.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.metalsyntax.paritykt.data.*
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.temporal.ChronoUnit
 
-// ------------------------------------------------------------------------------------------------ Planificado
+// ================================================================================================ Planificado
+
+/** Fila de planificado (ScheduledPaymentView de la web): ícono con + verde para registrarlo, fecha · frecuencia, monto y ≈ Bs. */
+@Composable
+fun ScheduledRow(s: ScheduledPayment, nav: Nav, onEdit: (() -> Unit)? = null) {
+    val d = Store.data
+    val c = category(s.category)
+    val days = runCatching { ChronoUnit.DAYS.between(LocalDate.now(), LocalDate.parse(s.date)) }.getOrDefault(0)
+    val due = when { days < 0 -> t("overdue"); days == 0L -> t("today"); days == 1L -> t("kt_tomorrow"); else -> t("kt_in_days", days) }
+    val badge = when { days < 0 -> Expense; days <= 7 -> Color(0xFFFB923C); else -> Muted }
+    val income = s.type == TxType.INCOME
+    val usd = Store.usd(s.amount, s.currency)
+    ListRow(s.name, subtitle = "${shortDate(s.date).uppercase(ES)} • ${s.frequency.label.uppercase(ES)}" + if (s.autoPost) " • ${t("kt_automatic").uppercase(ES)}" else "",
+        leading = { Bubble(icon(c.icon), if (income) Income else Expense, badge = {
+            if (Store.postScheduled(s, s.accountId ?: d.accounts.firstOrNull()?.id)) nav.snack(t("kt_posted", s.name)) else nav.snack(t("kt_first_wallet"))
+        }) },
+        pill = { Pill(due, badge) }, trailing = money(s.amount, s.currency), trailingColor = if (income) Income else Ink,
+        trailingSub = if (s.currency == Currency.VES) "≈ ${money(usd)}" else "≈ ${money(inDisplay(usd, Currency.VES), Currency.VES)}",
+        onClick = onEdit ?: { nav.go(Route.PLAN) })
+}
 
 @Composable
 fun ScheduledScreen(nav: Nav) {
@@ -30,51 +44,33 @@ fun ScheduledScreen(nav: Nav) {
     var edit by remember { mutableStateOf<ScheduledPayment?>(null) }
     var creating by remember { mutableStateOf(false) }
     val list = d.scheduled.sortedBy { it.date }
-    val monthTotal = list.filter { it.date.startsWith(YearMonth.now().toString()) && it.type == TxType.EXPENSE }.sumOf { Store.usd(it.amount, it.currency) }
-    LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
+    val monthExp = list.filter { it.date.startsWith(YearMonth.now().toString()) && it.type == TxType.EXPENSE }.sumOf { Store.usd(it.amount, it.currency) }
+    val monthInc = list.filter { it.date.startsWith(YearMonth.now().toString()) && it.type == TxType.INCOME }.sumOf { Store.usd(it.amount, it.currency) }
+    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
         item {
-            ViewHeader(t("scheduled"), t("kt_scheduled_sub"), nav.back) {
-                RoundIcon(Icons.Outlined.Add, t("kt_plan"), { creating = true }, tint = Color.White, bg = Brand)
+            Box(Modifier.offset(x = (-16).dp).fillParentMaxWidth()) {
+                ViewHeader(t("scheduled"), t("manageSubscriptions"), nav.back) { DisplayCurrencyButton(); AddButton(t("kt_plan")) { creating = true } }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                StatCard(t("kt_due_this_month"), shown(monthExp), Modifier.weight(1f), valueColor = Expense)
+                StatCard(t("scheduledIncome"), shown(monthInc), Modifier.weight(1f), valueColor = Income)
             }
         }
-        if (list.isEmpty()) item { Empty(Icons.Outlined.CalendarMonth, t("kt_nothing_planned"), t("kt_nothing_planned_desc"), t("add")) { creating = true } }
-        else item {
-            GlassCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                Column(Modifier.padding(20.dp)) {
-                    Caps(t("kt_due_this_month"))
-                    AutoText(shown(monthTotal), MaterialTheme.typography.headlineMedium, Expense)
-                    Text("${list.size} · ${t("kt_auto_count", list.count { it.autoPost })}", style = MaterialTheme.typography.labelMedium, color = Muted)
-                }
-            }
+        group(t("kt_scheduled_income"), Icons.Outlined.TrendingUp, Income, list.filter { it.type == TxType.INCOME }, t("kt_no_scheduled_income")) { s ->
+            ScheduledRow(s, nav) { edit = s }
         }
-        items(list, key = { it.id }) { s ->
-            val days = runCatching { ChronoUnit.DAYS.between(LocalDate.now(), LocalDate.parse(s.date)) }.getOrDefault(0)
-            val due = when { days < 0 -> "${t("overdue")} · ${-days} ${t("daysAgo")}"; days == 0L -> t("today"); days == 1L -> t("kt_tomorrow"); else -> t("kt_in_days", days) }
-            val badge = when { days < 0 -> Expense; days <= 7 -> Color(0xFFFB923C); else -> Muted }
-            val c = category(s.category)
-            val shape = RoundedCornerShape(16.dp)
-            Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().tap(onClick = { edit = s }).clip(shape).background(Surface1)
-                .border(1.dp, GlassBorder, shape).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Bubble(icon(c.icon), catColor(c)); Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(s.name, style = MaterialTheme.typography.titleSmall, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(s.frequency.label + if (s.autoPost) " · ${t("kt_automatic")}" else "", style = MaterialTheme.typography.labelSmall, color = Muted)
-                    Spacer(Modifier.height(6.dp))
-                    Text(due, Modifier.clip(CircleShape).background(badge.copy(alpha = 0.15f)).padding(horizontal = 8.dp, vertical = 3.dp),
-                        style = MaterialTheme.typography.labelSmall, color = badge)
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(money(s.amount, s.currency), style = MaterialTheme.typography.titleSmall, color = if (s.type == TxType.INCOME) Income else Ink)
-                    Spacer(Modifier.height(6.dp))
-                    GhostButton(if (s.type == TxType.INCOME) t("kt_collect") else t("kt_pay"), Icons.Outlined.Check,
-                        color = if (s.type == TxType.INCOME) Income else Brand) {
-                        if (Store.postScheduled(s, s.accountId ?: d.accounts.firstOrNull()?.id)) nav.snack(t("kt_posted", s.name)) else nav.snack(t("kt_first_wallet"))
-                    }
-                }
-            }
+        group(t("kt_scheduled_expenses"), Icons.Outlined.TrendingDown, Expense, list.filter { it.type == TxType.EXPENSE }, t("kt_no_scheduled_expenses")) { s ->
+            ScheduledRow(s, nav) { edit = s }
         }
     }
     if (creating || edit != null) ScheduledEditor(edit) { edit = null; creating = false }
+}
+
+/** Sección de lista con rótulo e ícono, o aviso si está vacía. */
+private fun <T : Any> LazyListScope.group(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, rows: List<T>, empty: String,
+                                          row: @Composable (T) -> Unit) {
+    item { Section(title, icon = icon, iconTint = tint); if (rows.isEmpty()) EmptyNote(empty) }
+    items(rows) { row(it) }
 }
 
 @Composable
@@ -97,13 +93,14 @@ private fun ScheduledEditor(initial: ScheduledPayment?, onDone: () -> Unit) {
             date = date.toString(), accountId = acc?.id, autoPost = auto && acc != null))
         onDone()
     }, onDelete = initial?.let { { Store.deleteScheduled(it.id); onDone() } }) {
-        Segmented(listOf(TxType.EXPENSE to t("kt_payment"), TxType.INCOME to t("income")), type,
+        Segmented(listOf(TxType.EXPENSE to t("kt_payment"), TxType.INCOME to t("kt_income_one")), type,
             colorOf = { if (it == TxType.INCOME) Income else Expense }) { type = it; cat = if (it == TxType.INCOME) "income" else "bills" }
         Field(name, { name = it }, t("kt_planned_name_hint"))
         Field(amount, { amount = it }, t("amount"), number = true, suffix = symbol(acc?.currency ?: currency))
         if (d.accounts.isEmpty()) Picker(t("currency"), Currency.entries.map { it to it.name }, currency) { currency = it }
         else Picker(t("wallet"), d.accounts.map { it.id to "${it.name} (${it.currency})" }, accountId) { accountId = it }
-        Picker(t("frequency"), Frequency.entries.map { it to it.label }, freq) { freq = it }
+        Caps(t("frequency"))
+        Segmented(Frequency.entries.map { it to it.label }, freq) { freq = it }
         Caps(t("category"))
         CategoryStrip(CATEGORIES.filter { it.id != "transfer" && it.income == (type == TxType.INCOME) }, cat) { cat = it }
         DateField(t("kt_next_date"), date) { date = it }
@@ -111,16 +108,24 @@ private fun ScheduledEditor(initial: ScheduledPayment?, onDone: () -> Unit) {
     }
 }
 
-// ------------------------------------------------------------------------------------------------ Presupuesto y metas
+// ================================================================================================ Presupuestos & Metas
 
+/** Presupuestos & Metas de la web (BudgetView.tsx): pestañas Sobres / Metas. */
 @Composable
 fun BudgetGoalsScreen(nav: Nav, goals: Boolean) {
+    var tab by remember { mutableStateOf(goals) }
     var creating by remember { mutableStateOf(false) }
     Column {
-        ViewHeader(if (goals) t("goals") else t("budget"), if (goals) t("kt_goals_sub") else t("kt_budget_sub"), nav.back) {
-            RoundIcon(Icons.Outlined.Add, t("add"), { creating = true }, tint = Color.White, bg = Brand)
+        ViewHeader(t("kt_budgets_goals"), t("kt_budgets_goals_sub"), nav.back) { DisplayCurrencyButton() }
+        Box(Modifier.padding(horizontal = 16.dp)) {
+            Segmented(listOf(false to t("envelopes"), true to t("goals")), tab, icons = { if (it) Icons.Outlined.EmojiEvents else Icons.Outlined.PieChart },
+                container = Surface1) { tab = it }
         }
-        if (goals) Goals(creating) { creating = false } else Budgets(creating) { creating = false }
+        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 18.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (tab) t("goals") else t("envelopes"), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, color = Ink)
+            BrandButton(if (tab) t("addGoal") else t("kt_new_envelope"), icon = Icons.Outlined.Add) { creating = true }
+        }
+        if (tab) Goals(creating) { creating = false } else Budgets(creating) { creating = false }
     }
 }
 
@@ -130,28 +135,35 @@ private fun Budgets(creating: Boolean, doneCreating: () -> Unit) {
     var edit by remember { mutableStateOf<Budget?>(null) }
     val list = d.budgets.filter { it.month == null || it.month == YearMonth.now().toString() }
     val limit = list.sumOf { it.limit }
-    val spent = list.sumOf { d.spentUsd(it.categoryId) }
-    LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp)) {
+    val income = d.monthTx().filter { it.type == TxType.INCOME }.sumOf { it.normalizedAmountUSD }
+    LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp)) {
         if (list.isEmpty()) item { Empty(Icons.Outlined.PieChart, t("kt_no_budget"), t("kt_no_budget_desc"), t("kt_create_budget")) { edit = Budget("", 0.0) } }
         else item {
+            // resumen: total en sobres frente al ingreso del mes
             GlassCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(20.dp)) {
-                    Caps(t("kt_left_this_month"))
-                    AutoText(money(limit - spent), MaterialTheme.typography.headlineMedium, if (spent > limit) Expense else Ink)
-                    Progress(t("kt_spent"), spent, limit, "${money(spent)} / ${money(limit)}")
+                    Row {
+                        Column(Modifier.weight(1f)) { Caps(t("kt_total_envelopes")); AutoText(shown(limit), MaterialTheme.typography.headlineMedium, Ink); Text(secondary(limit), style = MaterialTheme.typography.labelSmall, color = Muted) }
+                        Column(horizontalAlignment = Alignment.End) { Caps(t("kt_month_income")); Text(shown(income), style = MaterialTheme.typography.headlineSmall, color = Income); Text(secondary(income), style = MaterialTheme.typography.labelSmall, color = Muted) }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Bar(if (income > 0) (limit / income).toFloat() else 0f, Brand)
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(pct(limit, income), style = MaterialTheme.typography.labelLarge, color = Brand); Spacer(Modifier.width(8.dp))
+                        Text(t("kt_of_income_here"), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = Muted)
+                        Text("+ ${shown((income - limit).coerceAtLeast(0.0))} ${t("remaining")}", style = MaterialTheme.typography.labelMedium, color = Income)
+                    }
                 }
             }
-            Section(t("kt_by_category"))
+            Section(t("activeEnvelopes"))
         }
         items(list.sortedByDescending { d.spentUsd(it.categoryId) / it.limit }, key = { it.categoryId }) { b ->
             val s = d.spentUsd(b.categoryId)
             val c = category(b.categoryId)
-            GlassCard(Modifier.fillMaxWidth().padding(vertical = 4.dp), onClick = { edit = b }, radius = 16.dp) {
-                Row(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Bubble(icon(c.icon), catColor(c), 40.dp); Spacer(Modifier.width(12.dp))
-                    Box(Modifier.weight(1f)) { Progress(c.name, s, b.limit, "${money(s)} / ${money(b.limit)}", catColor(c)) }
-                }
-            }
+            val f = if (b.limit > 0) s / b.limit else 0.0
+            val (status, col) = when { f > 1 -> t("kt_exceeded") to Expense; f > 0.8 -> t("kt_near_limit") to Warning; else -> t("onTrack") to Income }
+            ProgressCard(c.name, icon(c.icon), catColor(c), s, b.limit, status, col, shown(s), "${t("kt_of")} ${shown(b.limit)}", amountSub = secondary(s)) { edit = b }
         }
     }
     if (creating || edit != null) {
@@ -161,7 +173,7 @@ private fun Budgets(creating: Boolean, doneCreating: () -> Unit) {
         var amount by remember(initial) { mutableStateOf(initial?.limit?.let(::num) ?: "") }
         val v = parseAmount(amount)
         val close = { edit = null; doneCreating() }
-        FormSheet(if (initial == null) t("kt_new_limit") else t("kt_edit_limit"), close, saveEnabled = v != null && v > 0, onSave = {
+        FormSheet(if (initial == null) t("kt_new_envelope") else t("kt_edit_limit"), close, saveEnabled = v != null && v > 0, onSave = {
             if (initial != null && initial.categoryId != cat) Store.deleteBudget(initial.categoryId)
             Store.saveBudget(Budget(cat, v!!)); close()
         }, onDelete = initial?.let { { Store.deleteBudget(it.categoryId); close() } }) {
@@ -177,60 +189,50 @@ private fun Goals(creating: Boolean, doneCreating: () -> Unit) {
     val d = Store.data
     var edit by remember { mutableStateOf<Goal?>(null) }
     var contribute by remember { mutableStateOf<Goal?>(null) }
-    LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    val saved = d.goals.sumOf { it.savedAmount }; val target = d.goals.sumOf { it.targetAmount }
+    LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp)) {
         if (d.goals.isEmpty()) item { Empty(Icons.Outlined.EmojiEvents, t("kt_no_goals"), t("kt_no_goals_desc"), t("addGoal")) { edit = Goal(name = "", targetAmount = 0.0, deadline = "") } }
-        items(d.goals.sortedBy { it.completed }, key = { it.id }) { g ->
-            val f = if (g.targetAmount > 0) (g.savedAmount / g.targetAmount).toFloat() else 0f
-            GlassCard(Modifier.fillMaxWidth(), onClick = { edit = g }) {
-                Column(Modifier.padding(18.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Bubble(if (g.completed) Icons.Outlined.TaskAlt else Icons.Outlined.EmojiEvents, Color(0xFFEAB308)); Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(g.name, style = MaterialTheme.typography.titleMedium, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text("${t("deadline")}: ${dayLabel(g.deadline)}", style = MaterialTheme.typography.bodySmall, color = Muted)
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(money(g.targetAmount), style = MaterialTheme.typography.titleSmall, color = Ink)
-                            Text("${(f * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, color = Muted)
-                        }
-                    }
-                    Spacer(Modifier.height(14.dp))
-                    Bar(f, if (g.completed) Income else Color(0xFFEAB308))
-                    Spacer(Modifier.height(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (g.completed) t("kt_achieved") else t("kt_missing", money((g.targetAmount - g.savedAmount).coerceAtLeast(0.0))),
-                            Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = if (g.completed) Income else Muted)
-                        if (!g.completed) GhostButton(t("kt_contribute"), Icons.Outlined.Add, Brand) { contribute = g }
-                    }
-                }
+        else item {
+            StatCard(t("kt_saved_total"), shown(saved), Modifier.fillMaxWidth(), valueColor = GOAL, sub = "${t("kt_of")} ${shown(target)} · ${pct(saved, target)}") {
+                Spacer(Modifier.height(12.dp)); Bar(if (target > 0) (saved / target).toFloat() else 0f, GOAL)
             }
+            Spacer(Modifier.height(8.dp))
+        }
+        items(d.goals.sortedBy { it.completed }, key = { it.id }) { g ->
+            ProgressCard(g.name, if (g.completed) Icons.Outlined.TaskAlt else Icons.Outlined.EmojiEvents, GOAL, g.savedAmount, g.targetAmount,
+                if (g.completed) t("kt_achieved") else "${t("deadline")}: ${dayLabel(g.deadline)}", if (g.completed) Income else Muted,
+                shown(g.savedAmount), "${t("kt_of")} ${shown(g.targetAmount)}", barColor = if (g.completed) Income else GOAL,
+                footer = {
+                    Text(if (g.completed) pct(g.savedAmount, g.targetAmount) else t("kt_missing", money((g.targetAmount - g.savedAmount).coerceAtLeast(0.0))),
+                        Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = Muted)
+                    if (!g.completed) GhostButton(t("kt_contribute"), Icons.Outlined.Add, Brand, bg = Bg) { contribute = g }
+                }) { edit = g }
         }
     }
     if (creating || edit != null) {
         val initial = edit?.takeIf { it.name.isNotEmpty() || it.targetAmount > 0 }
         var name by remember(initial) { mutableStateOf(initial?.name ?: "") }
-        var target by remember(initial) { mutableStateOf(initial?.targetAmount?.let(::num) ?: "") }
-        var saved by remember(initial) { mutableStateOf(initial?.savedAmount?.let(::num) ?: "0") }
+        var tgt by remember(initial) { mutableStateOf(initial?.targetAmount?.let(::num) ?: "") }
+        var sv by remember(initial) { mutableStateOf(initial?.savedAmount?.let(::num) ?: "0") }
         var date by remember(initial) { mutableStateOf(initial?.deadline?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() } ?: LocalDate.now().plusMonths(6)) }
-        val tg = parseAmount(target)
+        val tg = parseAmount(tgt)
         val close = { edit = null; doneCreating() }
         FormSheet(if (initial == null) t("addGoal") else t("kt_edit_goal"), close, saveEnabled = name.isNotBlank() && tg != null && tg > 0, onSave = {
             Store.saveGoal((initial ?: Goal(name = "", targetAmount = 0.0, deadline = "")).copy(name = name.trim(), targetAmount = tg!!,
-                savedAmount = parseAmount(saved) ?: 0.0, deadline = date.toString())); close()
+                savedAmount = parseAmount(sv) ?: 0.0, deadline = date.toString())); close()
         }, onDelete = initial?.let { { Store.deleteGoal(it.id); close() } }) {
             Field(name, { name = it }, t("kt_goal_name_hint"))
-            Field(target, { target = it }, t("kt_target"), number = true, suffix = "USD")
-            Field(saved, { saved = it }, t("kt_saved_so_far"), number = true, suffix = "USD")
+            Field(tgt, { tgt = it }, t("kt_target"), number = true, suffix = "USD")
+            Field(sv, { sv = it }, t("kt_saved_so_far"), number = true, suffix = "USD")
             DateField(t("deadline"), date) { date = it }
         }
     }
     contribute?.let { g ->
         var amount by remember(g) { mutableStateOf("") }
         val v = parseAmount(amount)
-        AlertDialog(onDismissRequest = { contribute = null }, containerColor = Surface1, shape = RoundedCornerShape(28.dp),
-            title = { Text(t("kt_contribute_to", g.name), color = Ink) },
-            text = { Field(amount, { amount = it }, t("amount"), number = true, suffix = "USD") },
-            confirmButton = { BrandButton(t("kt_contribute"), enabled = v != null && v > 0) { Store.saveGoal(g.copy(savedAmount = g.savedAmount + v!!)); contribute = null } },
-            dismissButton = { TextButton(onClick = { contribute = null }) { Text(t("cancel"), color = Muted) } })
+        Confirm(t("kt_contribute_to", g.name), "", t("kt_contribute"), enabled = v != null && v > 0, onDismiss = { contribute = null },
+            content = { Field(amount, { amount = it }, t("amount"), number = true, suffix = "USD") }) {
+            Store.saveGoal(g.copy(savedAmount = g.savedAmount + v!!)); contribute = null
+        }
     }
 }
