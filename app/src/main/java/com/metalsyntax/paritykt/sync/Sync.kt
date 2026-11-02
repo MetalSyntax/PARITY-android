@@ -92,29 +92,37 @@ object Sync {
             .addOnFailureListener { onError(it.message ?: it.javaClass.simpleName) }
     }
 
-    fun tokenFrom(activity: Activity, data: Intent?): String? =
-        runCatching { Identity.getAuthorizationClient(activity).getAuthorizationResultFromIntent(data).accessToken }.getOrNull()
+    /** Token tras la pantalla de permiso, o el motivo del fallo (código de Google: 10 = app sin registrar en Google Cloud). */
+    fun tokenFrom(activity: Activity, data: Intent?): Result<String> = runCatching {
+        Identity.getAuthorizationClient(activity).getAuthorizationResultFromIntent(data).accessToken ?: error("sin token")
+    }.recoverCatching { e ->
+        val code = (e as? com.google.android.gms.common.api.ApiException)?.statusCode
+        throw IllegalStateException(if (code == 10) com.metalsyntax.paritykt.data.t("kt_drive_not_registered") else "${e.message} (${code ?: "?"})")
+    }
 
     /**
-     * Sincroniza con Drive (bloqueante): baja el parity_sync_*.json más nuevo, lo mezcla (gana el updatedAt más
-     * reciente, las lápidas borran) y sube uno nuevo con el estado mezclado. Devuelve un resumen para mostrar.
+     * Sincroniza con Drive (bloqueante): baja la copia completa de la web (parity_backup_*) y la mínima (parity_sync_*)
+     * más nuevas, las mezcla (gana el updatedAt más reciente, las lápidas borran) y sube un parity_sync nuevo.
+     * Solo borra parity_sync viejos (deja 5); las copias completas de la web no se tocan.
      */
     fun driveSync(ctx: Context, token: String): String {
-        val files = JSONObject(http("https://www.googleapis.com/drive/v3/files?q=" +
-            java.net.URLEncoder.encode("name contains 'parity_sync_' and trashed=false", "UTF-8") +
-            "&orderBy=modifiedTime%20desc&pageSize=5&fields=files(id,name,modifiedTime)", token)).optJSONArray("files") ?: JSONArray()
+        fun list(prefix: String) = (JSONObject(http("https://www.googleapis.com/drive/v3/files?q=" +
+            java.net.URLEncoder.encode("name contains '$prefix' and trashed=false", "UTF-8") +
+            "&orderBy=modifiedTime%20desc&pageSize=20&fields=files(id,name,modifiedTime)", token)).optJSONArray("files") ?: JSONArray())
+            .let { a -> (0 until a.length()).map { a.getJSONObject(it) }.filter { it.optString("name").startsWith(prefix) } }
+        val files = list("parity_sync_")
         var pulled = 0
-        if (files.length() > 0) {
-            val latest = files.getJSONObject(0)
-            val remote = Store.decode(JSONObject(http("https://www.googleapis.com/drive/v3/files/${latest.getString("id")}?alt=media", token)))
-            pulled = remote.transactions.size
+        // primero la copia completa (trae planificados, presupuestos, metas y listas), luego la mínima más nueva
+        listOfNotNull(list("parity_backup_").firstOrNull(), files.firstOrNull()).forEach { f ->
+            val remote = Store.decode(JSONObject(http("https://www.googleapis.com/drive/v3/files/${f.getString("id")}?alt=media", token)))
+            pulled += remote.transactions.size + remote.scheduled.size + remote.budgets.size + remote.goals.size
             Store.merge(remote)
         }
         val name = "parity_sync_${nowIso().replace(":", "-")}.json"
         val meta = JSONObject(http("https://www.googleapis.com/drive/v3/files", token, "POST", JSONObject().put("name", name).put("mimeType", "application/json").toString()))
         http("https://www.googleapis.com/upload/drive/v3/files/${meta.getString("id")}?uploadType=media", token, "PATCH", minimal().toString())
         // deja solo los 5 más nuevos (como el historial de la web)
-        for (i in 4 until files.length()) runCatching { http("https://www.googleapis.com/drive/v3/files/${files.getJSONObject(i).getString("id")}", token, "DELETE") }
+        files.drop(4).forEach { f -> runCatching { http("https://www.googleapis.com/drive/v3/files/${f.getString("id")}", token, "DELETE") } }
         ctx.getSharedPreferences(PREFS, 0).edit().putString("last_drive", nowIso()).apply()
         return if (pulled > 0) com.metalsyntax.paritykt.data.t("kt_drive_merged", pulled) else com.metalsyntax.paritykt.data.t("kt_drive_first")
     }

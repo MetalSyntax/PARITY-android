@@ -292,8 +292,7 @@ fun rememberDriveSync(nav: Nav): () -> Unit {
         nav.snack(r)
     }
     val consent = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
-        val token = Sync.tokenFrom(ctx as Activity, r.data)
-        if (token != null && pending) run(token) else nav.snack(t("kt_drive_denied"))
+        if (pending) Sync.tokenFrom(ctx as Activity, r.data).onSuccess { run(it) }.onFailure { nav.snack("Drive: ${it.message}") }
         pending = false
     }
     return {

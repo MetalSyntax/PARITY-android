@@ -33,7 +33,7 @@
 "kt_drive_desc": "Mezcla con la copia de Parity web en tu Google Drive",
 "kt_drive_first": "Primer respaldo en Drive creado",
 "kt_drive_last": "Última: {0}",
-"kt_drive_merged": "Sincronizado: se mezclaron {0} movimientos de Drive",
+"kt_drive_merged": "Sincronizado: {0} elementos mezclados desde Drive",
 "kt_drive_sync": "Sincronizar con Google Drive",
 "kt_drive_unavailable": "Drive no disponible: {0}",
 "kt_due_this_month": "Por pagar este mes",
@@ -259,7 +259,8 @@
 "kt_use_pin": "Usar PIN",
 "kt_enter_pin_or_bio": "Usa tu huella o tu PIN",
 "kt_bio_unavailable": "Este teléfono no tiene huella o rostro registrado",
-"kt_bio_on": "Huella activada"
+"kt_bio_on": "Huella activada",
+"kt_drive_not_registered": "la app Android no está registrada en Google Cloud (código 10)"
 },
 "en": {
 "kt_achieved": "Achieved!",
@@ -295,7 +296,7 @@
 "kt_drive_desc": "Merges with Parity web's copy in your Google Drive",
 "kt_drive_first": "First Drive backup created",
 "kt_drive_last": "Last: {0}",
-"kt_drive_merged": "Synced: {0} transactions merged from Drive",
+"kt_drive_merged": "Synced: {0} items merged from Drive",
 "kt_drive_sync": "Sync with Google Drive",
 "kt_drive_unavailable": "Drive unavailable: {0}",
 "kt_due_this_month": "Due this month",
@@ -521,7 +522,8 @@
 "kt_use_pin": "Use PIN",
 "kt_enter_pin_or_bio": "Use your fingerprint or PIN",
 "kt_bio_unavailable": "No fingerprint or face enrolled on this phone",
-"kt_bio_on": "Fingerprint enabled"
+"kt_bio_on": "Fingerprint enabled",
+"kt_drive_not_registered": "the Android app is not registered in Google Cloud (code 10)"
 },
 "pt": {
 "kt_achieved": "Concluída!",
@@ -557,7 +559,7 @@
 "kt_drive_desc": "Mescla com a cópia do Parity web no seu Google Drive",
 "kt_drive_first": "Primeiro backup no Drive criado",
 "kt_drive_last": "Última: {0}",
-"kt_drive_merged": "Sincronizado: {0} transações mescladas do Drive",
+"kt_drive_merged": "Sincronizado: {0} itens mesclados do Drive",
 "kt_drive_sync": "Sincronizar com o Google Drive",
 "kt_drive_unavailable": "Drive indisponível: {0}",
 "kt_due_this_month": "A pagar este mês",
@@ -783,6 +785,7 @@
 "kt_use_pin": "Usar PIN",
 "kt_enter_pin_or_bio": "Use sua digital ou seu PIN",
 "kt_bio_unavailable": "Este telefone não tem digital ou rosto cadastrado",
-"kt_bio_on": "Digital ativada"
+"kt_bio_on": "Digital ativada",
+"kt_drive_not_registered": "o app Android não está registrado no Google Cloud (código 10)"
 }
 }
