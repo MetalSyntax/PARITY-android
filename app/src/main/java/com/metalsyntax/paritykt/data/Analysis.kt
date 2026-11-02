@@ -3,7 +3,8 @@ package com.metalsyntax.paritykt.data
 import java.time.YearMonth
 
 /** Cálculos de la vista Análisis, iguales a apps/web/views/AnalysisView.tsx (montos en USD normalizado). */
-data class Leak(val impulse: Boolean, val category: String, val amount: Double, val description: String)
+/** [share] = fracción del ingreso (gasto excesivo); [count] = cantidad de gastos (fuga hormiga). */
+data class Leak(val impulse: Boolean, val category: Category, val amount: Double, val share: Double, val count: Int)
 
 data class MonthAnalysis(
     val income: Double, val expense: Double,
@@ -20,14 +21,14 @@ fun AppData.analysis(m: YearMonth): MonthAnalysis {
     val expense = tx.filter { it.type == TxType.EXPENSE }.sumOf { it.normalizedAmountUSD }
     val leaks = exp.flatMap { (id, list) ->
         val total = list.sumOf { it.normalizedAmountUSD }
-        val name = category(id).name
+        val cat = category(id)
         listOfNotNull(
             // gasto excesivo: > 35 % de los ingresos (ahorro e inversión no son fugas)
             if (id != "investment" && id != "savings" && income > 0 && total > income * 0.35)
-                Leak(false, name, total, "${"%.0f".format(total / income * 100)} % de tus ingresos se va aquí") else null,
+                Leak(false, cat, total, total / income, list.size) else null,
             // fuga hormiga: más de 6 gastos con promedio < 15 USD
             if (id != "investment" && id != "savings" && list.size > 6 && total / list.size < 15)
-                Leak(true, name, total, "${list.size} gastos pequeños este mes") else null,
+                Leak(true, cat, total, if (income > 0) total / income else 0.0, list.size) else null,
         )
     }
     return MonthAnalysis(

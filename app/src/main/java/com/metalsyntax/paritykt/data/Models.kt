@@ -12,9 +12,11 @@ import java.util.UUID
  */
 enum class Currency { USD, VES, EUR, USDT }
 enum class TxType { EXPENSE, INCOME, TRANSFER }
-enum class Frequency(val json: String, val label: String) {
-    MONTHLY("Monthly", "Mensual"), BIWEEKLY("Bi-weekly", "Quincenal"), WEEKLY("Weekly", "Semanal"),
-    YEARLY("Yearly", "Anual"), ONCE("One-Time", "Una vez");
+enum class Frequency(val json: String, private val key: String) {
+    MONTHLY("Monthly", "monthly"), BIWEEKLY("Bi-weekly", "biweekly"), WEEKLY("Weekly", "weekly"),
+    YEARLY("Yearly", "yearly"), ONCE("One-Time", "oneTime");
+
+    val label get() = t(key)
 
     companion object { fun of(s: String?) = entries.firstOrNull { it.json == s } ?: MONTHLY }
 }
@@ -71,24 +73,29 @@ data class Rates(val usd: Double = 0.0, val eur: Double = 0.0, val updatedAt: St
     fun snapshot() = usd
 }
 
-data class Category(val id: String, val name: String, val icon: String, val income: Boolean = false)
+/** Categoría de la web (apps/web/constants.tsx): nombre = clave i18n, color = el text-*-400 de Tailwind de la web. */
+data class Category(val id: String, val key: String, val icon: String, val income: Boolean = false, val color: Long = 0xFF9CA3AF) {
+    val name get() = t(key)
+}
 
-/** Categorías de la web (apps/web/constants.tsx), en español. */
+private fun c(id: String, icon: String, color: Long, income: Boolean = false, key: String = "cat_$id") = Category(id, key, icon, income, color)
+
 val CATEGORIES = listOf(
-    Category("food", "Comida", "food"), Category("coffee", "Comida rápida y café", "coffee"), Category("transport", "Transporte", "car"),
-    Category("home", "Hogar", "home"), Category("bills", "Facturas", "bolt"), Category("internet", "Internet y datos", "wifi"),
-    Category("health", "Salud", "health"), Category("shopping", "Compras", "bag"), Category("entertainment", "Entretenimiento", "movie"),
-    Category("education", "Educación", "school"), Category("subscription", "Suscripciones", "tv"), Category("loans", "Préstamos y créditos", "card"),
-    Category("insurance", "Seguros", "shield"), Category("pets", "Mascotas", "pets"), Category("kids", "Niños", "kids"),
-    Category("travel", "Viajes", "plane"), Category("gift", "Regalos", "gift"), Category("personal", "Cuidado personal", "spa"),
-    Category("services", "Servicios", "build"), Category("taxes", "Impuestos", "receipt"), Category("commission", "Comisiones", "percent"),
-    Category("savings", "Ahorro", "savings"), Category("other", "Otros", "more"),
-    Category("income", "Ingresos", "money", true), Category("work", "Trabajo", "work", true), Category("freelance", "Freelance", "laptop", true),
-    Category("business", "Negocio", "store", true), Category("interest", "Intereses", "trending", true), Category("investment", "Inversión", "trending", true),
-    Category("transfer", "Transferencia", "swap"),
+    c("food", "food", 0xFFFB923C), c("coffee", "coffee", 0xFFFCA5A5, key = "cat_fastfood"), c("transport", "car", 0xFF60A5FA),
+    c("home", "home", 0xFF818CF8), c("bills", "bolt", 0xFFFACC15), c("internet", "wifi", 0xFF38BDF8),
+    c("health", "health", 0xFFF87171), c("shopping", "bag", 0xFFF472B6), c("entertainment", "movie", 0xFFC084FC),
+    c("education", "school", 0xFF34D399), c("subscription", "tv", 0xFFA78BFA), c("loans", "card", 0xFF10B981),
+    c("insurance", "shield", 0xFF818CF8), c("pets", "pets", 0xFFFBBF24), c("kids", "kids", 0xFF93C5FD),
+    c("travel", "plane", 0xFF38BDF8), c("vacation", "beach", 0xFF22D3EE), c("electronics", "phone", 0xFFD4D4D8),
+    c("gift", "gift", 0xFFFB7185), c("personal", "spa", 0xFF2DD4BF), c("services", "build", 0xFF94A3B8),
+    c("taxes", "receipt", 0xFF9CA3AF), c("commission", "percent", 0xFFFCA5A5), c("charity", "health", 0xFFFDA4AF),
+    c("savings", "savings", 0xFF34D399), c("other", "more", 0xFFD1D5DB),
+    c("income", "money", 0xFF34D399, true), c("work", "work", 0xFFCBD5E1, true), c("freelance", "laptop", 0xFFA5B4FC, true),
+    c("business", "store", 0xFF60A5FA, true), c("interest", "trending", 0xFF818CF8, true), c("investment", "trending", 0xFF4ADE80, true),
+    c("transfer", "swap", 0xFF818CF8),
 )
 
-fun category(id: String) = CATEGORIES.firstOrNull { it.id == id } ?: Category(id, id.replaceFirstChar { it.uppercase() }, "more")
+fun category(id: String) = CATEGORIES.firstOrNull { it.id == id } ?: Category(id, id.replaceFirstChar { it.uppercase() }, "more")  // clave desconocida: t() devuelve el id
 
 // ------------------------------------------------------------------------------------------------ JSON
 

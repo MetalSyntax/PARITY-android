@@ -25,72 +25,76 @@ import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
-private val monthFmt = DateTimeFormatter.ofPattern("MMMM yyyy", ES)
-private val shortFmt = DateTimeFormatter.ofPattern("MMM", ES)
+private val monthFmt get() = DateTimeFormatter.ofPattern("MMMM yyyy", ES)
+private val shortFmt get() = DateTimeFormatter.ofPattern("MMM", ES)
 
 /** Análisis como la web: flujo neto, ingresos vs gastos (6 meses), top gastos, ingresos por fuente, fugas y próximos pagos. */
 @Composable
-fun AnalysisScreen(go: (String) -> Unit) {
+private fun ViewHeaderBox(nav: Nav) = ViewHeader(t("analysis"), t("financialOverview"), nav.back)
+
+@Composable
+fun AnalysisScreen(nav: Nav) = Column {
     val d = Store.data
     var month by remember { mutableStateOf(YearMonth.now()) }
     val a = d.analysis(month)
-    LazyColumn(contentPadding = PaddingValues(16.dp, 4.dp, 16.dp, 24.dp)) {
+    ViewHeaderBox(nav)
+    LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { month = month.minusMonths(1) }) { Icon(Icons.Outlined.ChevronLeft, "Mes anterior") }
-                Text(month.format(monthFmt).replaceFirstChar { it.uppercase() }, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
+                IconButton(onClick = { month = month.minusMonths(1) }) { Icon(Icons.Outlined.ChevronLeft, null, tint = Ink) }
+                Text(month.format(monthFmt).replaceFirstChar { it.uppercase() }, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = Ink,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                IconButton(onClick = { month = month.plusMonths(1) }, enabled = month < YearMonth.now()) { Icon(Icons.Outlined.ChevronRight, "Mes siguiente") }
+                IconButton(onClick = { month = month.plusMonths(1) }, enabled = month < YearMonth.now()) { Icon(Icons.Outlined.ChevronRight, null, tint = if (month < YearMonth.now()) Ink else Muted.copy(alpha = 0.3f)) }
             }
             GlassCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(20.dp)) {
-                    Caps("Flujo neto")
-                    Text((if (a.net >= 0) "+" else "−") + money(kotlin.math.abs(a.net)), style = MaterialTheme.typography.displaySmall,
-                        color = if (a.net >= 0) Color.White else Expense)
+                    Caps(t("netCashFlow"))
+                    AutoText((if (a.net >= 0) "+" else "") + shown(a.net), MaterialTheme.typography.displaySmall, if (a.net >= 0) Ink else Expense)
                     Spacer(Modifier.height(12.dp))
                     Row {
-                        Column(Modifier.weight(1f)) { Caps("Ingresos"); Text(money(a.income), color = Income, fontWeight = FontWeight.Black) }
-                        Column(Modifier.weight(1f)) { Caps("Gastos"); Text(money(a.expense), color = Expense, fontWeight = FontWeight.Black) }
+                        Column(Modifier.weight(1f)) { Caps(t("income")); Text(shown(a.income), color = Income, fontWeight = FontWeight.Black) }
+                        Column(Modifier.weight(1f)) { Caps(t("expenses")); Text(shown(a.expense), color = Expense, fontWeight = FontWeight.Black) }
                     }
                 }
             }
         }
         item {
-            Section("Ingresos vs gastos")
+            Section(t("incomeVsExpenses"))
             GlassCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) { IncomeExpenseBars(d.monthlyTotals(month)) } }
         }
         item {
-            Section("Dónde se va tu dinero")
+            Section(t("topSpendingCategories"))
             GlassCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    if (a.topExpenses.isEmpty()) Text("Sin gastos este mes.", Modifier.padding(vertical = 8.dp), color = Muted)
-                    a.topExpenses.forEach { (c, v) -> Progress(c.name, v, a.expense, "${money(v)} · ${pct(v, a.expense)}") }
+                    if (a.topExpenses.isEmpty()) Text(t("noData"), Modifier.padding(vertical = 8.dp), color = Muted)
+                    a.topExpenses.forEach { (c, v) -> Progress(c.name, v, a.expense, "${money(v)} · ${pct(v, a.expense)}", catColor(c)) }
                 }
             }
         }
         if (a.incomeByCategory.isNotEmpty()) item {
-            Section("Fuentes de ingreso")
+            Section(t("incomeSources"))
             GlassCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    a.incomeByCategory.forEach { (c, v) -> Progress(c.name, v, a.income, "${money(v)} · ${pct(v, a.income)}") }
+                    a.incomeByCategory.forEach { (c, v) -> Progress(c.name, v, a.income, "${money(v)} · ${pct(v, a.income)}", catColor(c)) }
                 }
             }
         }
-        item { Section("Detector de fugas") }
+        item { Section(t("leakDetector")) }
         if (a.leaks.isEmpty()) item {
-            Row2(Icons.Outlined.Verified, "Sin fugas detectadas", "Tus gastos se ven sanos este mes.", tint = Income)
+            Row2(Icons.Outlined.Verified, t("noLeaksDetected"), t("healthySpendingDesc"), tint = Income)
         } else items(a.leaks) { l ->
-            Row2(if (l.impulse) Icons.Outlined.WaterDrop else Icons.Outlined.Warning, "${if (l.impulse) "Fuga hormiga" else "Gasto excesivo"} · ${l.category}",
-                l.description, money(l.amount), Expense, tint = if (l.impulse) Color(0xFFF59E0B) else Expense)
+            Row2(if (l.impulse) Icons.Outlined.WaterDrop else Icons.Outlined.Warning, "${if (l.impulse) t("minorLeakage") else t("overspending")} · ${l.category.name}",
+                if (l.impulse) "${l.count} ${t("smallExpensesWarning")}" else "${"%.0f".format(l.share * 100)}% ${t("ofIncomeGoesHere")}",
+                money(l.amount), Expense, tint = if (l.impulse) Warning else Expense)
         }
-        item { Section("Próximos pagos", "Ver todo") { go("plan") } }
+        item { Section(t("upcomingSubscriptions"), t("kt_see_all")) { nav.go(Route.PLAN) } }
         val subs = d.scheduled.sortedBy { it.date }
-        if (subs.isEmpty()) item { Text("No hay pagos planificados.", Modifier.padding(4.dp), color = Muted) }
+        if (subs.isEmpty()) item { Text(t("noSubscriptions"), Modifier.padding(4.dp), color = Muted) }
         items(subs.take(5), key = { it.id }) { s ->
             val days = runCatching { ChronoUnit.DAYS.between(LocalDate.now(), LocalDate.parse(s.date)) }.getOrDefault(0L)
-            Row2(icon(category(s.category).icon), s.name, when { days < 0 -> "Hace ${-days} días"; days == 0L -> "Hoy"; else -> "En $days días" },
+            Row2(icon(category(s.category).icon), s.name, when { days < 0 -> "${-days} ${t("daysAgo")}"; days == 0L -> t("today"); else -> "$days ${t("daysLeft")}" },
                 money(s.amount, s.currency), if (s.type == TxType.INCOME) Income else Expense,
-                tint = when { days < 0 -> Expense; days <= 7 -> Color(0xFFF59E0B); else -> Muted }, onClick = { go("plan") })
+                tint = when { days < 0 -> Expense; days <= 7 -> Warning; else -> Muted }, onClick = { nav.go(Route.PLAN) })
         }
     }
 }
@@ -100,7 +104,7 @@ private fun pct(v: Double, total: Double) = if (total > 0) "${"%.0f".format(v / 
 @Composable
 private fun IncomeExpenseBars(data: List<Triple<YearMonth, Double, Double>>) {
     val max = data.maxOf { maxOf(it.second, it.third) }.takeIf { it > 0 } ?: 1.0
-    val desc = data.joinToString("; ") { "${it.first.format(shortFmt)}: ingresos ${money(it.second)}, gastos ${money(it.third)}" }
+    val desc = data.joinToString("; ") { "${it.first.format(shortFmt)}: ${t("income")} ${money(it.second)}, ${t("expenses")} ${money(it.third)}" }
     Canvas(Modifier.fillMaxWidth().height(140.dp).semantics { contentDescription = desc }) {
         val slot = size.width / data.size
         val bw = slot * 0.28f
@@ -117,7 +121,7 @@ private fun IncomeExpenseBars(data: List<Triple<YearMonth, Double, Double>>) {
             textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
     }
     Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Legend("Ingresos", Income); Legend("Gastos", Expense)
+        Legend(t("income"), Income); Legend(t("expenses"), Expense)
     }
 }
 

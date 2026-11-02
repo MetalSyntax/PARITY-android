@@ -44,6 +44,8 @@ object Store {
     private lateinit var file: File
     private var onChange: (() -> Unit)? = null
 
+    val ready get() = ::file.isInitialized
+
     fun init(ctx: Context, changed: () -> Unit) {
         file = File(ctx.filesDir, "parity.json")
         onChange = changed

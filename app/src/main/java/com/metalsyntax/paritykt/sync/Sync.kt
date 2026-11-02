@@ -116,7 +116,7 @@ object Sync {
         // deja solo los 5 más nuevos (como el historial de la web)
         for (i in 4 until files.length()) runCatching { http("https://www.googleapis.com/drive/v3/files/${files.getJSONObject(i).getString("id")}", token, "DELETE") }
         ctx.getSharedPreferences(PREFS, 0).edit().putString("last_drive", nowIso()).apply()
-        return if (pulled > 0) "Sincronizado: se mezclaron $pulled movimientos de Drive" else "Primer respaldo en Drive creado"
+        return if (pulled > 0) com.metalsyntax.paritykt.data.t("kt_drive_merged", pulled) else com.metalsyntax.paritykt.data.t("kt_drive_first")
     }
 
     /** Payload mínimo de la web (packages/core/src/utils/minimalSync.ts): sin recibos, con lápidas. */

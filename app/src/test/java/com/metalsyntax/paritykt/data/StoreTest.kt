@@ -108,7 +108,7 @@ class StoreTest {
         val a = Store.data.analysis(m)
         assertEquals(100.0, a.income, 1e-9); assertEquals(54.0, a.expense, 1e-9); assertEquals(46.0, a.net, 1e-9)
         assertEquals(listOf("home", "coffee"), a.topExpenses.map { it.first.id })
-        assertEquals(listOf(false to "Hogar", true to "Comida rápida y café"), a.leaks.map { it.impulse to it.category })
+        assertEquals(listOf(false to "home", true to "coffee"), a.leaks.map { it.impulse to it.category.id })
         val totals = Store.data.monthlyTotals(m)
         assertEquals(6, totals.size); assertEquals(m, totals.last().first); assertEquals(100.0, totals.last().second, 1e-9)
     }
