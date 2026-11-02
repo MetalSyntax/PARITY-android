@@ -85,13 +85,15 @@ object Pin {
     private lateinit var sp: android.content.SharedPreferences
     var enabled by mutableStateOf(false); private set
     var lockOnExit by mutableStateOf(true); private set
+    /** Desbloquear también con huella/rostro (el PIN sigue como respaldo). */
+    var biometric by mutableStateOf(false); private set
     var locked by mutableStateOf(false)
     var fails by mutableIntStateOf(0); private set
     private var until = 0L
 
     fun init(ctx: Context) {
         sp = ctx.getSharedPreferences("security", Context.MODE_PRIVATE)
-        enabled = sp.contains("hash"); lockOnExit = sp.getBoolean("lockOnExit", true)
+        enabled = sp.contains("hash"); lockOnExit = sp.getBoolean("lockOnExit", true); biometric = sp.getBoolean("biometric", false)
         locked = enabled
     }
 
@@ -107,7 +109,9 @@ object Pin {
         enabled = true; locked = false
     }
 
-    fun clear() { sp.edit().remove("salt").remove("hash").apply(); enabled = false; locked = false }
+    fun clear() { sp.edit().remove("salt").remove("hash").remove("biometric").apply(); enabled = false; locked = false; biometric = false }
+
+    @JvmName("applyBiometric") fun setBiometric(v: Boolean) { biometric = v; sp.edit().putBoolean("biometric", v).apply() }
 
     /** Segundos de espera si hay bloqueo por intentos; 0 si se puede intentar. */
     fun waitSeconds() = ((until - System.currentTimeMillis()) / 1000).coerceAtLeast(0)

@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Backspace
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,7 +24,7 @@ import kotlinx.coroutines.launch
 
 /** Teclado de PIN reutilizable: puntos, mensaje y teclas 0–9. Llama [onComplete] al llegar a [length] dígitos. */
 @Composable
-fun PinPad(title: String, subtitle: String, error: String? = null, length: Int = 4, onComplete: (String) -> Unit) {
+fun PinPad(title: String, subtitle: String, error: String? = null, length: Int = 4, onBiometric: (() -> Unit)? = null, onComplete: (String) -> Unit) {
     var pin by remember { mutableStateOf("") }
     val shake = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
@@ -40,17 +41,19 @@ fun PinPad(title: String, subtitle: String, error: String? = null, length: Int =
             repeat(length) { i -> Box(Modifier.size(16.dp).clip(CircleShape).background(if (i < pin.length) Brand else Surface2)) }
         }
         Spacer(Modifier.height(32.dp))
-        listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("", "0", "⌫")).forEach { row ->
+        listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf(if (onBiometric != null) "bio" else "", "0", "⌫")).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.padding(vertical = 8.dp)) {
                 row.forEach { k ->
                     Box(Modifier.size(76.dp).tap(onClick = if (k.isEmpty()) null else { {
-                        if (k == "⌫") pin = pin.dropLast(1)
+                        if (k == "bio") onBiometric?.invoke()
+                        else if (k == "⌫") pin = pin.dropLast(1)
                         else if (pin.length < length) {
                             pin += k
                             if (pin.length == length) { val p = pin; scope.launch { delay(120); onComplete(p); pin = "" } }
                         }
                     } }).clip(CircleShape).background(if (k.isEmpty()) Bg.copy(alpha = 0f) else Surface1), contentAlignment = Alignment.Center) {
-                        if (k == "⌫") Icon(Icons.Outlined.Backspace, t("kt_erase"), tint = Ink)
+                        if (k == "bio") Icon(Icons.Outlined.Fingerprint, t("biometrics"), tint = Brand, modifier = Modifier.size(32.dp))
+                        else if (k == "⌫") Icon(Icons.Outlined.Backspace, t("kt_erase"), tint = Ink)
                         else Text(k, style = MaterialTheme.typography.headlineSmall, color = Ink)
                     }
                 }
@@ -59,12 +62,32 @@ fun PinPad(title: String, subtitle: String, error: String? = null, length: Int =
     }
 }
 
-/** Pantalla de bloqueo a pantalla completa. */
+/** Huella / rostro con BiometricPrompt (mismo enfoque que YiSecure). Solo biometría: el respaldo es el PIN de la app. */
+object Biometric {
+    private const val AUTH = androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
+
+    fun available(ctx: android.content.Context) =
+        androidx.biometric.BiometricManager.from(ctx).canAuthenticate(AUTH) == androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
+
+    fun prompt(act: androidx.fragment.app.FragmentActivity, onOk: () -> Unit) {
+        androidx.biometric.BiometricPrompt(act, androidx.core.content.ContextCompat.getMainExecutor(act),
+            object : androidx.biometric.BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(r: androidx.biometric.BiometricPrompt.AuthenticationResult) = onOk()
+            }).authenticate(androidx.biometric.BiometricPrompt.PromptInfo.Builder().setTitle("Parity").setSubtitle(t("biometricsDesc"))
+            .setNegativeButtonText(t("kt_use_pin")).setAllowedAuthenticators(AUTH).build())
+    }
+}
+
+/** Pantalla de bloqueo a pantalla completa: huella (si está activa) y PIN. */
 @Composable
 fun LockScreen() {
     var error by remember { mutableStateOf<String?>(null) }
+    val act = androidx.compose.ui.platform.LocalContext.current as androidx.fragment.app.FragmentActivity
+    val bio = Pin.biometric && Biometric.available(act)
+    val ask = { Biometric.prompt(act) { Pin.locked = false } }
+    LaunchedEffect(Unit) { if (bio) ask() } // al abrir, la huella aparece sola
     Box(Modifier.fillMaxSize().background(Bg).systemBarsPadding(), contentAlignment = Alignment.Center) {
-        PinPad(t("kt_enter_pin"), t("kt_enter_pin_desc"), error) { p ->
+        PinPad(t("kt_enter_pin"), if (bio) t("kt_enter_pin_or_bio") else t("kt_enter_pin_desc"), error, onBiometric = if (bio) ask else null) { p ->
             error = if (Pin.check(p)) null else Pin.waitSeconds().let { s -> if (s > 0) t("kt_pin_wait", s) else t("kt_pin_wrong") }
         }
     }

@@ -255,7 +255,11 @@
 "kt_tut_customize_1": "Widgets",
 "kt_tut_customize_1_d": "El botón Widgets del inicio muestra u oculta cada bloque, y con ⋮⋮ cambias su orden y el de las acciones rápidas.",
 "kt_tut_customize_2": "Barra inferior",
-"kt_tut_customize_2_d": "En Perfil elige hasta 3 vistas para la barra inferior, junto al inicio y el botón +."
+"kt_tut_customize_2_d": "En Perfil elige hasta 3 vistas para la barra inferior, junto al inicio y el botón +.",
+"kt_use_pin": "Usar PIN",
+"kt_enter_pin_or_bio": "Usa tu huella o tu PIN",
+"kt_bio_unavailable": "Este teléfono no tiene huella o rostro registrado",
+"kt_bio_on": "Huella activada"
 },
 "en": {
 "kt_achieved": "Achieved!",
@@ -513,7 +517,11 @@
 "kt_tut_customize_1": "Widgets",
 "kt_tut_customize_1_d": "The Widgets button on home shows or hides each block, and ⋮⋮ changes their order and the quick actions'.",
 "kt_tut_customize_2": "Bottom bar",
-"kt_tut_customize_2_d": "In Profile pick up to 3 views for the bottom bar, next to home and the + button."
+"kt_tut_customize_2_d": "In Profile pick up to 3 views for the bottom bar, next to home and the + button.",
+"kt_use_pin": "Use PIN",
+"kt_enter_pin_or_bio": "Use your fingerprint or PIN",
+"kt_bio_unavailable": "No fingerprint or face enrolled on this phone",
+"kt_bio_on": "Fingerprint enabled"
 },
 "pt": {
 "kt_achieved": "Concluída!",
@@ -771,6 +779,10 @@
 "kt_tut_customize_1": "Widgets",
 "kt_tut_customize_1_d": "O botão Widgets do início mostra ou oculta cada bloco, e com ⋮⋮ você muda a ordem deles e das ações rápidas.",
 "kt_tut_customize_2": "Barra inferior",
-"kt_tut_customize_2_d": "No Perfil escolha até 3 vistas para a barra inferior, junto ao início e ao botão +."
+"kt_tut_customize_2_d": "No Perfil escolha até 3 vistas para a barra inferior, junto ao início e ao botão +.",
+"kt_use_pin": "Usar PIN",
+"kt_enter_pin_or_bio": "Use sua digital ou seu PIN",
+"kt_bio_unavailable": "Este telefone não tem digital ou rosto cadastrado",
+"kt_bio_on": "Digital ativada"
 }
 }

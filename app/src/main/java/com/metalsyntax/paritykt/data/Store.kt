@@ -255,7 +255,11 @@ object Store {
     fun decode(o: JSONObject) = AppData(
         Json.profile(o.optJSONObject("userProfile")),
         Json.arr(o, "accounts", Json::account), Json.arr(o, "transactions", Json::tx), Json.arr(o, "scheduledPayments", Json::scheduled),
-        Json.arr(o, "budgets", Json::budget), Json.arr(o, "goals", Json::goal), Json.arr(o, "shoppingLists", Json::list),
+        Json.arr(o, "budgets", Json::budget), Json.arr(o, "goals", Json::goal),
+        // respaldos viejos de la web: productos sueltos («shoppingItems») sin listas → una lista
+        Json.arr(o, "shoppingLists", Json::list).ifEmpty {
+            o.optJSONArray("shoppingItems")?.takeIf { it.length() > 0 }?.let { listOf(Json.list(JSONObject().put("id", "legacy-items").put("name", "Lista de compras").put("items", it))) }.orEmpty()
+        },
         Json.arr(o, "deletedTransactions") { Tombstone(it.getString("id"), it.optString("deletedAt")) },
         o.optJSONObject("rates")?.let { Rates(it.optDouble("usd", 0.0), it.optDouble("eur", 0.0), it.optString("updatedAt").ifEmpty { null }, it.optBoolean("manual"),
             it.optDouble("bcvUsd", it.optDouble("usd", 0.0)), it.optDouble("bcvEur", it.optDouble("eur", 0.0)), it.optDouble("usdPar", 0.0),

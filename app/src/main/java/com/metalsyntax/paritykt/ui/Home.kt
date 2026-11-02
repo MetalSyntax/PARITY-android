@@ -481,6 +481,14 @@ fun SettingsSheet(nav: Nav, onDismiss: () -> Unit) {
                     onClick = { pinSheet = true }) { Chevron() }
                 if (Pin.enabled) {
                     SettingRow(t("kt_lock_on_exit"), t("kt_lock_on_exit_desc")) { Toggle(Pin.lockOnExit, onChange = Pin::setLockOnExit) }
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    val can = remember { Biometric.available(ctx) }
+                    SettingRow(t("biometrics"), if (can) t("biometricsDesc") else t("kt_bio_unavailable"), icon = Icons.Outlined.Fingerprint) {
+                        Toggle(Pin.biometric && can, enabled = can) { v ->
+                            // confirmar con la huella antes de activarla
+                            if (v) Biometric.prompt(ctx as androidx.fragment.app.FragmentActivity) { Pin.setBiometric(true); nav.snack(t("kt_bio_on")) } else Pin.setBiometric(false)
+                        }
+                    }
                     SettingRow(t("kt_remove_pin"), titleColor = Expense, onClick = { Pin.clear(); nav.snack(t("kt_pin_removed")) }) {}
                 }
                 SettingRow(t("kt_encrypted"), t("kt_encrypted_desc"), icon = Icons.Outlined.VerifiedUser, tint = Income) {}

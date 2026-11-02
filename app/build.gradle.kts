@@ -39,6 +39,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     // Google Drive (alcance drive.file, mismo que la web): token OAuth con la cuenta del teléfono
     implementation("com.google.android.gms:play-services-auth:21.0.0")
+    implementation("androidx.biometric:biometric:1.1.0") // huella / rostro, como YiSecure
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20231013") // org.json real (el de android.jar es un stub en pruebas locales)
 }

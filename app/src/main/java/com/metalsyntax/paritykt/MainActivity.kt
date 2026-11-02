@@ -1,7 +1,6 @@
 package com.metalsyntax.paritykt
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -31,7 +30,8 @@ import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-class MainActivity : ComponentActivity() {
+/** FragmentActivity (es un ComponentActivity) porque BiometricPrompt lo necesita. */
+class MainActivity : androidx.fragment.app.FragmentActivity() {
     private val bgScope = MainScope()
     private var pending: Job? = null
 

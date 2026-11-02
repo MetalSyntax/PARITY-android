@@ -134,4 +134,18 @@ class StoreTest {
         Store.saveAccount(Account(name = "Nueva", currency = Currency.USD, balance = 0.0)) // escribir después no toca la copia
         assertTrue(dir.listFiles()!!.any { it.name.startsWith("parity.unreadable.") && it.readText() == "{ no es json" })
     }
+
+    @Test fun webJsonExportBringsScheduledBudgetsGoalsAndLegacyItems() {
+        // forma del «Respaldo JSON» de la web ya corregido (DataPortabilityView): igual que la copia de Drive
+        val o = org.json.JSONObject("""{"version":3,"userProfile":{"name":"Ana"},"accounts":[],"transactions":[],
+          "scheduledPayments":[{"id":"s1","name":"Alquiler","amount":300,"currency":"USD","date":"2026-11-05","frequency":"Monthly","type":"EXPENSE","category":"home"}],
+          "budgets":[{"categoryId":"food","limit":250,"month":"2026-11"}],
+          "goals":[{"id":"g1","name":"Fondo","targetAmount":620,"savedAmount":254,"deadline":"2027-02-28","icon":"flag","color":"#fff"}],
+          "shoppingLists":[],"shoppingItems":[{"id":"i1","name":"Arroz","quantity":"2","completed":false,"price":1.5}]}""")
+        val d = Store.decode(o)
+        assertEquals(listOf("Alquiler"), d.scheduled.map { it.name }); assertEquals(Frequency.MONTHLY, d.scheduled.first().frequency)
+        assertEquals(250.0, d.budgets.single().limit, 1e-9); assertEquals("2026-11", d.budgets.single().month)
+        assertEquals(254.0, d.goals.single().savedAmount, 1e-9)
+        assertEquals(listOf("Arroz"), d.lists.single().items.map { it.name })
+    }
 }
