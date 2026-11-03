@@ -10,7 +10,9 @@ import java.util.UUID
  * para que los respaldos (parity_backup_*.json) y la sincronización mínima (parity_sync_*.json) sirvan en las dos.
  * Los campos que el MVP no usa se conservan tal cual en [extra] y se vuelven a escribir.
  */
-enum class Currency { USD, VES, EUR, USDT }
+enum class Currency { USD, VES, EUR, USDT;
+    val usdLike get() = this == USD || this == USDT
+}
 enum class TxType { EXPENSE, INCOME, TRANSFER }
 enum class Frequency(val json: String, private val key: String) {
     MONTHLY("Monthly", "monthly"), BIWEEKLY("Bi-weekly", "biweekly"), WEEKLY("Weekly", "weekly"),
@@ -43,7 +45,9 @@ data class ScheduledPayment(
     val autoPost: Boolean = false, val updatedAt: String = nowIso(), val extra: JSONObject = JSONObject(),
 )
 
-data class Budget(val categoryId: String, val limit: Double, val month: String? = null, val updatedAt: String = nowIso(), val extra: JSONObject = JSONObject())
+data class Budget(val categoryId: String, val limit: Double, val month: String? = null, val updatedAt: String = nowIso(), val extra: JSONObject = JSONObject()) {
+    val key get() = categoryId + "|" + (month ?: "")
+}
 
 data class Goal(
     val id: String = newId(), val name: String, val targetAmount: Double, val savedAmount: Double = 0.0, val deadline: String,

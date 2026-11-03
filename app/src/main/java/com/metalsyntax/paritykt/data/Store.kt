@@ -34,6 +34,11 @@ data class AppData(
     fun account(id: String?) = accounts.firstOrNull { it.id == id }
     fun totalUsd() = accounts.sumOf { rates.toUsd(it.balance, it.currency) }
     fun monthTx(m: YearMonth = YearMonth.now()) = transactions.filter { it.date.startsWith(m.toString()) }
+    /** Sobres del mes: los específicos de [m] más los generales que ese mes no reemplaza; sin los ocultos (limit < 0). */
+    fun activeBudgets(m: YearMonth = YearMonth.now()): List<Budget> {
+        val specific = budgets.filter { it.month == m.toString() }
+        return (specific + budgets.filter { it.month == null && specific.none { s -> s.categoryId == it.categoryId } }).filter { it.limit >= 0 }
+    }
     fun spentUsd(categoryId: String, m: YearMonth = YearMonth.now()) =
         monthTx(m).filter { it.type == TxType.EXPENSE && it.category == categoryId }.sumOf { it.normalizedAmountUSD }
 }
@@ -112,7 +117,11 @@ object Store {
         val old = data.transactions.firstOrNull { it.id == t.id }
         var accounts = data.accounts
         if (old != null) accounts = apply(accounts, old, -1.0)
-        val fixed = t.copy(updatedAt = nowIso(), normalizedAmountUSD = usd(t.amount, t.originalCurrency), exchangeRate = data.rates.snapshot())
+        // tasas del momento guardadas en la transacción (exchangeRate y euroRate de la web); al editar se conservan las originales
+        val rate = old?.exchangeRate?.takeIf { it > 0 } ?: data.rates.snapshot()
+        val eur = old?.extra?.optDouble("euroRate", 0.0)?.takeIf { it > 0 } ?: data.rates.eur
+        val fixed = t.copy(updatedAt = nowIso(), normalizedAmountUSD = usd(t.amount, t.originalCurrency), exchangeRate = rate,
+            extra = org.json.JSONObject(t.extra.toString()).put("euroRate", eur))
         accounts = apply(accounts, fixed, 1.0)
         commit(data.copy(accounts = accounts, transactions = data.transactions.upsert(fixed) { it.id }))
     }
@@ -124,27 +133,31 @@ object Store {
     }
 
     /** Aplica (sign = 1) o revierte (sign = −1) el efecto de [t] en los saldos. */
+    /**
+     * Efecto de una transacción en los saldos (applyTransactionDelta de la web): la de origen descuenta el monto + la comisión
+     * (gasto y transferencia), convertido de la moneda de la transacción a la de la cuenta con la tasa guardada en la
+     * transacción; la de destino de una transferencia recibe el monto convertido.
+     */
     private fun apply(accounts: List<Account>, t: Transaction, sign: Double): List<Account> = accounts.map { a ->
+        val fee = if (t.type != TxType.INCOME) t.fee ?: 0.0 else 0.0
         val delta = when {
-            a.id == t.accountId && t.type == TxType.EXPENSE -> -t.amount
-            a.id == t.accountId && t.type == TxType.INCOME -> t.amount
-            a.id == t.accountId && t.type == TxType.TRANSFER -> -(t.amount + (t.fee ?: 0.0))
-            a.id == t.toAccountId && t.type == TxType.TRANSFER -> convert(t.amount, t.originalCurrency, a.currency)
+            a.id == t.accountId && t.type == TxType.INCOME -> convertAt(t.amount, t.originalCurrency, a.currency, t)
+            a.id == t.accountId -> -convertAt(t.amount + fee, t.originalCurrency, a.currency, t)
+            a.id == t.toAccountId && t.type == TxType.TRANSFER -> convertAt(t.amount, t.originalCurrency, a.currency, t)
             else -> 0.0
         }
         if (delta == 0.0) a else a.copy(balance = a.balance + sign * delta, updatedAt = nowIso())
     }
 
-    /** Transferencia entre monedas distintas: se pasa por USD con la tasa actual. */
-    private fun convert(amount: Double, from: Currency, to: Currency): Double {
-        if (from == to) return amount
-        val usd = data.rates.toUsd(amount, from)
-        return when (to) {
-            Currency.USD, Currency.USDT -> usd
-            Currency.VES -> usd * data.rates.usd
-            Currency.EUR -> if (data.rates.eur > 0) usd * data.rates.usd / data.rates.eur else usd
-        }
+    /** Conversión con las tasas de la transacción (exchangeRate = Bs por $, euroRate = Bs por €), para que editar o borrar revierta exacto. */
+    private fun convertAt(amount: Double, from: Currency, to: Currency, t: Transaction): Double {
+        if (from == to || (from.usdLike && to.usdLike)) return amount
+        val usd = t.exchangeRate.takeIf { it > 0 } ?: data.rates.usd
+        val eur = t.extra.optDouble("euroRate", 0.0).takeIf { it > 0 } ?: data.rates.eur.takeIf { it > 0 } ?: usd
+        val ves = when (from) { Currency.VES -> amount; Currency.EUR -> amount * eur; else -> amount * usd }
+        return when (to) { Currency.VES -> ves; Currency.EUR -> ves / eur; else -> ves / usd }
     }
+
 
     // ------------------------------------------------------------------------------------------ planificado
 
@@ -179,8 +192,20 @@ object Store {
 
     // ------------------------------------------------------------------------------------------ presupuesto y metas
 
-    fun saveBudget(b: Budget) = commit(data.copy(budgets = data.budgets.upsert(b.copy(updatedAt = nowIso())) { it.categoryId }))
-    fun deleteBudget(categoryId: String) = commit(data.copy(budgets = data.budgets.filter { it.categoryId != categoryId }))
+    /** Un presupuesto es único por categoría + mes (month = null: general, vale para todos los meses), como la web. */
+    fun saveBudget(b: Budget) = commit(data.copy(budgets = data.budgets.upsert(b.copy(updatedAt = nowIso())) { it.key }))
+    fun deleteBudget(b: Budget) = commit(data.copy(budgets = data.budgets.filter { it.key != b.key }))
+
+    /**
+     * Quitar un sobre del mes [m] (BudgetView.tsx): el específico del mes se borra; uno general se oculta en ese mes
+     * con limit = -1, sin tocar los demás meses.
+     */
+    fun removeBudget(b: Budget, m: YearMonth) =
+        if (b.month == m.toString()) deleteBudget(b) else saveBudget(Budget(b.categoryId, -1.0, m.toString()))
+
+    /** Copia los sobres del mes anterior al mes [m]. */
+    fun copyBudgets(from: YearMonth, m: YearMonth) = commit(data.copy(budgets = data.activeBudgets(from)
+        .map { it.copy(month = m.toString(), updatedAt = nowIso()) }.fold(data.budgets) { acc, b -> acc.upsert(b) { it.key } }))
     fun saveGoal(g: Goal) = commit(data.copy(goals = data.goals.upsert(g.copy(updatedAt = nowIso(), completed = g.savedAmount >= g.targetAmount)) { it.id }))
     fun deleteGoal(id: String) = commit(data.copy(goals = data.goals.filter { it.id != id }))
 

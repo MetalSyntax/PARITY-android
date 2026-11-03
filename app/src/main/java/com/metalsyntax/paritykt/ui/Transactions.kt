@@ -121,69 +121,6 @@ private fun PeriodMenu(period: String, months: List<String>, fmt: DateTimeFormat
 
 // ------------------------------------------------------------------------------------------------ Editor
 
-/** Crear / editar una transacción. La moneda es la de la cuenta de origen. */
-@Composable
-fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
-    val d = Store.data
-    var type by remember { mutableStateOf(initial?.type ?: type0) }
-    var amount by remember { mutableStateOf(initial?.amount?.let(::num) ?: "") }
-    var accountId by remember { mutableStateOf(initial?.accountId ?: d.accounts.firstOrNull()?.id) }
-    var toId by remember { mutableStateOf(initial?.toAccountId ?: d.accounts.getOrNull(1)?.id) }
-    var cat by remember { mutableStateOf(initial?.category ?: if (type0 == TxType.INCOME) "income" else "food") }
-    var note by remember { mutableStateOf(initial?.note ?: "") }
-    var fee by remember { mutableStateOf(initial?.fee?.let(::num) ?: "") }
-    var date by remember { mutableStateOf(initial?.date?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() } ?: LocalDate.now()) }
-    val acc = d.account(accountId)
-    val value = parseAmount(amount)
-    val ok = acc != null && value != null && value > 0 && (type != TxType.TRANSFER || (toId != null && toId != accountId))
-    if (d.accounts.isEmpty()) {
-        Confirm(t("kt_first_wallet"), t("kt_first_wallet_desc"), t("done"), onDismiss = onDone, onConfirm = onDone)
-        return
-    }
-    val typeColor = when (type) { TxType.EXPENSE -> Expense; TxType.INCOME -> Income; else -> Brand }
-    FormSheet(if (initial == null) t("kt_new_tx") else t("kt_edit_tx"), onDone, saveEnabled = ok, onSave = {
-        val time = if (initial != null && initial.date.take(10) == date.toString()) initial.date else LocalDateTime.of(date, java.time.LocalTime.now().withNano(0)).toString()
-        Store.saveTx((initial ?: Transaction(amount = 0.0, originalCurrency = acc!!.currency, exchangeRate = 0.0, normalizedAmountUSD = 0.0, type = type,
-            category = cat, accountId = acc.id, date = time)).copy(
-            amount = value!!, originalCurrency = acc!!.currency, type = type, accountId = acc.id, date = time, note = note.trim(),
-            category = if (type == TxType.TRANSFER) "transfer" else cat, toAccountId = if (type == TxType.TRANSFER) toId else null,
-            fee = if (type == TxType.TRANSFER) parseAmount(fee) else null))
-        onDone()
-    }, onDelete = initial?.let { { Store.deleteTx(it.id); onDone() } }) {
-        Segmented(listOf(TxType.EXPENSE to t("expense"), TxType.INCOME to t("kt_income_one"), TxType.TRANSFER to t("kt_transfer_short")), type,
-            colorOf = { when (it) { TxType.EXPENSE -> Expense; TxType.INCOME -> Income; else -> Brand } }) {
-            type = it; if (it == TxType.INCOME && category(cat).income.not()) cat = "income"; if (it == TxType.EXPENSE && category(cat).income) cat = "food"
-        }
-        // monto grande, como el teclado de AddTransaction de la web
-        Column(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Caps(t("amount"))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(acc?.currency?.let(::symbol) ?: "", style = MaterialTheme.typography.headlineMedium, color = Muted)
-                Spacer(Modifier.width(6.dp))
-                androidx.compose.foundation.text.BasicTextField(amount, { amount = it.filter { c -> c.isDigit() || c == '.' || c == ',' } },
-                    Modifier.widthIn(min = 60.dp, max = 260.dp).width(IntrinsicSize.Min), singleLine = true,
-                    textStyle = MaterialTheme.typography.displaySmall.copy(color = typeColor, textAlign = TextAlign.Center),
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
-                    cursorBrush = androidx.compose.ui.graphics.SolidColor(typeColor),
-                    decorationBox = { inner -> Box(contentAlignment = Alignment.Center) {
-                        if (amount.isEmpty()) Text("0", style = MaterialTheme.typography.displaySmall, color = Muted.copy(alpha = 0.4f)); inner() } })
-            }
-            if (acc != null && acc.currency != Currency.USD && value != null && d.rates.usd > 0)
-                Text("≈ ${money(d.rates.toUsd(value, acc.currency))}", style = MaterialTheme.typography.labelMedium, color = Muted)
-        }
-        Picker(if (type == TxType.TRANSFER) t("from") else t("wallet"), d.accounts.map { it.id to "${it.name} (${it.currency})" }, accountId) { accountId = it }
-        if (type == TxType.TRANSFER) {
-            Picker(t("to"), d.accounts.filter { it.id != accountId }.map { it.id to "${it.name} (${it.currency})" }, toId) { toId = it }
-            Field(fee, { fee = it }, t("kt_fee_optional"), number = true)
-        } else {
-            Caps(t("category"))
-            CategoryStrip(CATEGORIES.filter { it.id != "transfer" && it.income == (type == TxType.INCOME) }, cat) { cat = it }
-        }
-        DateField(t("date"), date) { date = it }
-        Field(note, { note = it }, t("note"))
-    }
-}
-
 /** Categorías como fichas desplazables con su color (grilla de categorías de AddTransaction). */
 @Composable
 fun CategoryStrip(cats: List<Category>, selected: String, onPick: (String) -> Unit) {

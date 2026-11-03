@@ -113,10 +113,21 @@ private fun ScheduledEditor(initial: ScheduledPayment?, onDone: () -> Unit) {
 /** Presupuestos & Metas de la web (BudgetView.tsx): pestañas Sobres / Metas. */
 @Composable
 fun BudgetGoalsScreen(nav: Nav, goals: Boolean) {
+    val d = Store.data
     var tab by remember { mutableStateOf(goals) }
     var creating by remember { mutableStateOf(false) }
+    var month by remember { mutableStateOf(YearMonth.now()) }
+    // meses con sobres + los últimos 6 y el siguiente, como el menú de la web
+    val months = remember(d.budgets) {
+        (d.budgets.mapNotNull { b -> b.month?.let { runCatching { YearMonth.parse(it) }.getOrNull() } } +
+            (-6..1).map { YearMonth.now().plusMonths(it.toLong()) }).distinct().sortedDescending()
+    }
     Column {
-        ViewHeader(t("kt_budgets_goals"), t("kt_budgets_goals_sub"), nav.back) { DisplayCurrencyButton() }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+            verticalAlignment = Alignment.CenterVertically) {
+            DisplayCurrencyButton(); MonthPicker(month, months) { month = it }
+        }
+        ViewHeader(t("kt_budgets_goals"), t("kt_budgets_goals_sub"), nav.back)
         Box(Modifier.padding(horizontal = 16.dp)) {
             Segmented(listOf(false to t("envelopes"), true to t("goals")), tab, icons = { if (it) Icons.Outlined.EmojiEvents else Icons.Outlined.PieChart },
                 container = Surface1) { tab = it }
@@ -125,19 +136,25 @@ fun BudgetGoalsScreen(nav: Nav, goals: Boolean) {
             Text(if (tab) t("goals") else t("envelopes"), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, color = Ink)
             BrandButton(if (tab) t("addGoal") else t("kt_new_envelope"), icon = Icons.Outlined.Add) { creating = true }
         }
-        if (tab) Goals(creating) { creating = false } else Budgets(creating) { creating = false }
+        if (tab) Goals(creating) { creating = false } else Budgets(month, creating) { creating = false }
     }
 }
 
 @Composable
-private fun Budgets(creating: Boolean, doneCreating: () -> Unit) {
+private fun Budgets(month: YearMonth, creating: Boolean, doneCreating: () -> Unit) {
     val d = Store.data
     var edit by remember { mutableStateOf<Budget?>(null) }
-    val list = d.budgets.filter { it.month == null || it.month == YearMonth.now().toString() }
+    val list = d.activeBudgets(month)
     val limit = list.sumOf { it.limit }
-    val income = d.monthTx().filter { it.type == TxType.INCOME }.sumOf { it.normalizedAmountUSD }
+    val income = d.monthTx(month).filter { it.type == TxType.INCOME }.sumOf { it.normalizedAmountUSD }
+    val prev = month.minusMonths(1)
     LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp)) {
-        if (list.isEmpty()) item { Empty(Icons.Outlined.PieChart, t("kt_no_budget"), t("kt_no_budget_desc"), t("kt_create_budget")) { edit = Budget("", 0.0) } }
+        if (list.isEmpty()) item {
+            Empty(Icons.Outlined.PieChart, t("kt_no_budget"), t("kt_no_budget_desc"), t("kt_create_budget")) { edit = Budget("", 0.0) }
+            if (d.activeBudgets(prev).isNotEmpty()) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                GhostButton(t("kt_copy_prev_month"), Icons.Outlined.ContentCopy) { Store.copyBudgets(prev, month) }
+            }
+        }
         else item {
             // resumen: total en sobres frente al ingreso del mes
             GlassCard(Modifier.fillMaxWidth()) {
@@ -158,8 +175,8 @@ private fun Budgets(creating: Boolean, doneCreating: () -> Unit) {
             }
             Section(t("activeEnvelopes"))
         }
-        items(list.sortedByDescending { d.spentUsd(it.categoryId) / it.limit }, key = { it.categoryId }) { b ->
-            val s = d.spentUsd(b.categoryId)
+        items(list.sortedByDescending { d.spentUsd(it.categoryId, month) / it.limit }, key = { it.key }) { b ->
+            val s = d.spentUsd(b.categoryId, month)
             val c = category(b.categoryId)
             val f = if (b.limit > 0) s / b.limit else 0.0
             val (status, col) = when { f > 1 -> t("kt_exceeded") to Expense; f > 0.8 -> t("kt_near_limit") to Warning; else -> t("onTrack") to Income }
@@ -174,9 +191,10 @@ private fun Budgets(creating: Boolean, doneCreating: () -> Unit) {
         val v = parseAmount(amount)
         val close = { edit = null; doneCreating() }
         FormSheet(if (initial == null) t("kt_new_envelope") else t("kt_edit_limit"), close, saveEnabled = v != null && v > 0, onSave = {
-            if (initial != null && initial.categoryId != cat) Store.deleteBudget(initial.categoryId)
-            Store.saveBudget(Budget(cat, v!!)); close()
-        }, onDelete = initial?.let { { Store.deleteBudget(it.categoryId); close() } }) {
+            // al editar en un mes se guarda como sobre de ese mes (el general sigue igual para los demás)
+            if (initial != null && initial.categoryId != cat) Store.removeBudget(initial, month)
+            Store.saveBudget(Budget(cat, v!!, month.toString())); close()
+        }, onDelete = initial?.let { { Store.removeBudget(it, month); close() } }) {
             Caps(t("category"))
             CategoryStrip(CATEGORIES.filter { !it.income && it.id != "transfer" }, cat) { cat = it }
             Field(amount, { amount = it }, t("monthlyLimit"), number = true, suffix = "USD")

@@ -148,4 +148,35 @@ class StoreTest {
         assertEquals(254.0, d.goals.single().savedAmount, 1e-9)
         assertEquals(listOf("Arroz"), d.lists.single().items.map { it.name })
     }
+
+    @Test fun budgetsAreUniquePerMonthAndGeneralOnesCanBeHiddenPerMonth() {
+        val nov = java.time.YearMonth.of(2026, 11); val dec = nov.plusMonths(1)
+        Store.saveBudget(Budget("food", 100.0))                    // general
+        Store.saveBudget(Budget("food", 250.0, "2026-11"))         // específico de noviembre: no pisa el general
+        assertEquals(2, Store.data.budgets.size)
+        assertEquals(listOf(250.0), Store.data.activeBudgets(nov).map { it.limit })
+        assertEquals(listOf(100.0), Store.data.activeBudgets(dec).map { it.limit })
+        Store.removeBudget(Store.data.activeBudgets(dec).single(), dec)   // quitar el general solo en diciembre
+        assertTrue(Store.data.activeBudgets(dec).isEmpty())
+        assertEquals(listOf(250.0), Store.data.activeBudgets(nov).map { it.limit })
+        Store.copyBudgets(nov, dec)
+        assertEquals(listOf(250.0), Store.data.activeBudgets(dec).map { it.limit })
+    }
+
+    @Test fun calculatorEvaluatesWithPrecedence() {
+        assertEquals(14.0, Calc.eval("2+3×4")!!, 1e-9)
+        assertEquals(2.5, Calc.eval("10÷4")!!, 1e-9)
+        assertEquals(1.5, Calc.eval("3,5-2")!!, 1e-9)
+        assertEquals(null, Calc.eval("5+"))
+        assertEquals(null, Calc.eval("5÷0"))
+    }
+
+    @Test fun expenseInOtherCurrencyWithFeeUsesTransactionRate() {
+        // gasto de 10 $ desde la cuenta en Bs con 1 $ de comisión, a 40 Bs/$ → -440 Bs
+        val e = tx(TxType.EXPENSE, 10.0, ves).copy(originalCurrency = Currency.USD, fee = 1.0).also(Store::saveTx)
+        assertEquals(3560.0, bal(ves), 1e-9)
+        Store.setRates(Rates(usd = 50.0, eur = 55.0, updatedAt = nowIso()))   // la tasa cambia después
+        Store.deleteTx(e.id)                                                   // revertir usa la tasa guardada
+        assertEquals(4000.0, bal(ves), 1e-9)
+    }
 }

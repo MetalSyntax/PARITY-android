@@ -103,7 +103,7 @@ fun HomeScreen(nav: Nav) {
                         items(up.take(3), key = { "s" + it.id }) { s -> ScheduledRow(s, nav) }
                     }
                 }
-                Widget.BUDGET -> d.budgets.filter { it.month == null || it.month == YearMonth.now().toString() }.takeIf { it.isNotEmpty() }?.let { budgets ->
+                Widget.BUDGET -> d.activeBudgets().takeIf { it.isNotEmpty() }?.let { budgets ->
                     item(key = w) {
                         Section(t("budget"), t("kt_see_all")) { nav.go(Route.BUDGET) }
                         GlassCard(Modifier.fillMaxWidth(), onClick = { nav.go(Route.BUDGET) }) {

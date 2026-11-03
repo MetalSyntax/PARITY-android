@@ -705,3 +705,23 @@ fun DisplayCurrencyButton(size: Dp = 44.dp) {
         Text(if (cur == Currency.VES) "Bs" else symbol(cur), color = if (cur != Currency.USD) Color.White else Ink, style = MaterialTheme.typography.labelLarge)
     }
 }
+
+/** Selector de mes en cápsula con menú (el «2026-11 ⌄» de Presupuestos de la web). */
+@Composable
+fun MonthPicker(month: java.time.YearMonth, months: List<java.time.YearMonth>, onPick: (java.time.YearMonth) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val fmt = DateTimeFormatter.ofPattern("MMMM yyyy", ES)
+    fun label(m: java.time.YearMonth) = m.format(fmt).replaceFirstChar { it.uppercase() }
+    Box {
+        Row(Modifier.height(44.dp).tap(onClick = { open = true }).clip(CircleShape).background(Surface1).padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.CalendarMonth, null, tint = Brand, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+            Text(label(month), color = Ink, style = MaterialTheme.typography.labelLarge, maxLines = 1); Spacer(Modifier.width(4.dp))
+            Icon(Icons.Outlined.ExpandMore, null, tint = Muted, modifier = Modifier.size(18.dp))
+        }
+        DropdownMenu(open, { open = false }, Modifier.background(Surface2).heightIn(max = 380.dp)) {
+            months.forEach { m -> DropdownMenuItem(text = { Text(label(m), color = if (m == month) Brand else Muted, fontWeight = FontWeight.Black) },
+                onClick = { onPick(m); open = false }) }
+        }
+    }
+}
