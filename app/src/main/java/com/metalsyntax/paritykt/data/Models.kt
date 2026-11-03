@@ -118,7 +118,7 @@ private fun base(extra: JSONObject) = JSONObject().also { r -> extra.keys().forE
 
 object Json {
     fun account(o: JSONObject) = Account(o.getString("id"), o.optString("name"), cur(o.str("currency")), o.optDouble("balance", 0.0),
-        o.optString("icon", "wallet"), o.str("color"), o.str("updatedAt") ?: nowIso(), rest(o, "id", "name", "currency", "balance", "icon", "color", "updatedAt", "payrollClient"),
+        o.optString("icon", "wallet"), o.str("color"), o.str("updatedAt") ?: "", rest(o, "id", "name", "currency", "balance", "icon", "color", "updatedAt", "payrollClient"),
         o.str("payrollClient")?.takeIf { it.isNotBlank() })
 
     fun account(a: Account) = base(a.extra).put("id", a.id).put("name", a.name).put("currency", a.currency.name).put("balance", a.balance)
@@ -139,20 +139,20 @@ object Json {
 
     fun scheduled(o: JSONObject) = ScheduledPayment(o.getString("id"), o.optString("name"), o.optDouble("amount", 0.0), cur(o.str("currency")),
         o.optString("date").take(10), Frequency.of(o.str("frequency")), txType(o.str("type")), o.optString("category", "bills"), o.str("accountId"),
-        o.optBoolean("autoPost"), o.str("updatedAt") ?: nowIso(),
+        o.optBoolean("autoPost"), o.str("updatedAt") ?: "",
         rest(o, "id", "name", "amount", "currency", "date", "frequency", "type", "category", "accountId", "autoPost", "updatedAt"))
 
     fun scheduled(s: ScheduledPayment) = base(s.extra).put("id", s.id).put("name", s.name).put("amount", s.amount).put("currency", s.currency.name)
         .put("date", s.date).put("frequency", s.frequency.json).put("type", s.type.name).put("category", s.category)
         .put("autoPost", s.autoPost).put("updatedAt", s.updatedAt).apply { s.accountId?.let { put("accountId", it) } }
 
-    fun budget(o: JSONObject) = Budget(o.getString("categoryId"), o.optDouble("limit", 0.0), o.str("month"), o.str("updatedAt") ?: nowIso(),
+    fun budget(o: JSONObject) = Budget(o.getString("categoryId"), o.optDouble("limit", 0.0), o.str("month"), o.str("updatedAt") ?: "",
         rest(o, "categoryId", "limit", "month", "updatedAt"))
 
     fun budget(b: Budget) = base(b.extra).put("categoryId", b.categoryId).put("limit", b.limit).put("updatedAt", b.updatedAt).apply { b.month?.let { put("month", it) } }
 
     fun goal(o: JSONObject) = Goal(o.getString("id"), o.optString("name"), o.optDouble("targetAmount", 0.0), o.optDouble("savedAmount", 0.0),
-        o.optString("deadline"), o.optString("icon", "flag"), o.optString("color", "#00897B"), o.optBoolean("completed"), o.str("updatedAt") ?: nowIso(),
+        o.optString("deadline"), o.optString("icon", "flag"), o.optString("color", "#00897B"), o.optBoolean("completed"), o.str("updatedAt") ?: "",
         rest(o, "id", "name", "targetAmount", "savedAmount", "deadline", "icon", "color", "completed", "updatedAt"))
 
     fun goal(g: Goal) = base(g.extra).put("id", g.id).put("name", g.name).put("targetAmount", g.targetAmount).put("savedAmount", g.savedAmount)
@@ -166,13 +166,13 @@ object Json {
 
     fun list(o: JSONObject) = ShoppingList(o.getString("id"), o.optString("name"),
         o.optJSONArray("items")?.let { a -> (0 until a.length()).map { item(a.getJSONObject(it)) } }.orEmpty(),
-        o.optString("createdAt", nowIso()), o.str("updatedAt") ?: nowIso(), rest(o, "id", "name", "items", "createdAt", "updatedAt"))
+        o.optString("createdAt", nowIso()), o.str("updatedAt") ?: o.optString("createdAt", ""), rest(o, "id", "name", "items", "createdAt", "updatedAt"))
 
     fun list(l: ShoppingList) = base(l.extra).put("id", l.id).put("name", l.name).put("items", JSONArray(l.items.map(::item)))
         .put("createdAt", l.createdAt).put("updatedAt", l.updatedAt)
 
     fun profile(o: JSONObject?) = o?.let { UserProfile(it.optString("id", newId()), it.optString("name"), it.optString("language", "es"),
-        it.str("updatedAt") ?: nowIso(), rest(it, "id", "name", "language", "updatedAt")) } ?: UserProfile()
+        it.str("updatedAt") ?: "", rest(it, "id", "name", "language", "updatedAt")) } ?: UserProfile()
 
     fun profile(p: UserProfile) = base(p.extra).put("id", p.id).put("name", p.name).put("language", p.language).put("updatedAt", p.updatedAt)
 

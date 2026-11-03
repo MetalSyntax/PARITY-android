@@ -19,6 +19,12 @@ fun <T> List<T>.upsert(x: T, id: (T) -> Any): List<T> =
 /** Lápida de una transacción borrada: la sincronización mínima la propaga (mismo campo que la web). */
 data class Tombstone(val id: String, val deletedAt: String)
 
+/**
+ * Borrado de cualquier otro elemento (lista, planificado, meta, presupuesto, billetera) para que la sincronización no lo
+ * reviva. [id] es la clave del elemento (en presupuestos, categoría|mes). Va en «deletedItems» del JSON (la web lo ignora).
+ */
+data class Deleted(val kind: String, val id: String, val deletedAt: String)
+
 /** Todo el estado de la app (inmutable): Compose recompone cuando [Store.data] cambia. */
 data class AppData(
     val profile: UserProfile = UserProfile(),
@@ -29,6 +35,7 @@ data class AppData(
     val goals: List<Goal> = emptyList(),
     val lists: List<ShoppingList> = emptyList(),
     val tombstones: List<Tombstone> = emptyList(),
+    val deleted: List<Deleted> = emptyList(),
     val rates: Rates = Rates(),
 ) {
     fun account(id: String?) = accounts.firstOrNull { it.id == id }
@@ -104,7 +111,7 @@ object Store {
     /** No se borra una cuenta con movimientos (quedarían huérfanos). */
     fun deleteAccount(id: String): Boolean {
         if (data.transactions.any { it.accountId == id || it.toAccountId == id }) return false
-        commit(data.copy(accounts = data.accounts.filter { it.id != id }))
+        commit(data.copy(accounts = data.accounts.filter { it.id != id }, deleted = gone("account", id)))
         return true
     }
 
@@ -162,7 +169,7 @@ object Store {
     // ------------------------------------------------------------------------------------------ planificado
 
     fun saveScheduled(s: ScheduledPayment) = commit(data.copy(scheduled = data.scheduled.upsert(s.copy(updatedAt = nowIso())) { it.id }))
-    fun deleteScheduled(id: String) = commit(data.copy(scheduled = data.scheduled.filter { it.id != id }))
+    fun deleteScheduled(id: String) = commit(data.copy(scheduled = data.scheduled.filter { it.id != id }, deleted = gone("scheduled", id)))
 
     /** Registra el pago como transacción y avanza a la próxima fecha (los de una vez se eliminan). */
     fun postScheduled(s: ScheduledPayment, accountId: String? = s.accountId): Boolean {
@@ -194,7 +201,7 @@ object Store {
 
     /** Un presupuesto es único por categoría + mes (month = null: general, vale para todos los meses), como la web. */
     fun saveBudget(b: Budget) = commit(data.copy(budgets = data.budgets.upsert(b.copy(updatedAt = nowIso())) { it.key }))
-    fun deleteBudget(b: Budget) = commit(data.copy(budgets = data.budgets.filter { it.key != b.key }))
+    fun deleteBudget(b: Budget) = commit(data.copy(budgets = data.budgets.filter { it.key != b.key }, deleted = gone("budget", b.key)))
 
     /**
      * Quitar un sobre del mes [m] (BudgetView.tsx): el específico del mes se borra; uno general se oculta en ese mes
@@ -207,12 +214,14 @@ object Store {
     fun copyBudgets(from: YearMonth, m: YearMonth) = commit(data.copy(budgets = data.activeBudgets(from)
         .map { it.copy(month = m.toString(), updatedAt = nowIso()) }.fold(data.budgets) { acc, b -> acc.upsert(b) { it.key } }))
     fun saveGoal(g: Goal) = commit(data.copy(goals = data.goals.upsert(g.copy(updatedAt = nowIso(), completed = g.savedAmount >= g.targetAmount)) { it.id }))
-    fun deleteGoal(id: String) = commit(data.copy(goals = data.goals.filter { it.id != id }))
+    fun deleteGoal(id: String) = commit(data.copy(goals = data.goals.filter { it.id != id }, deleted = gone("goal", id)))
 
     // ------------------------------------------------------------------------------------------ compras
 
     fun saveList(l: ShoppingList) = commit(data.copy(lists = data.lists.upsert(l.copy(updatedAt = nowIso())) { it.id }))
-    fun deleteList(id: String) = commit(data.copy(lists = data.lists.filter { it.id != id }))
+    fun deleteList(id: String) = commit(data.copy(lists = data.lists.filter { it.id != id }, deleted = gone("list", id)))
+
+    private fun gone(kind: String, id: String) = (data.deleted.filter { !(it.kind == kind && it.id == id) } + Deleted(kind, id, nowIso())).takeLast(2000)
 
     // ------------------------------------------------------------------------------------------ perfil y tasas
 
@@ -252,14 +261,19 @@ object Store {
         fun <T> m(a: List<T>, b: List<T>, key: (T) -> String, ts: (T) -> String) =
             (a + b).groupBy(key).values.map { v -> v.maxBy(ts) }
         val dead = (data.tombstones + incoming.tombstones).map { it.id }.toSet()
+        // borrados de ambos lados (el más reciente por elemento); un elemento editado después del borrado sigue vivo
+        val deleted = (data.deleted + incoming.deleted).groupBy { it.kind + "/" + it.id }.values.map { v -> v.maxBy { it.deletedAt } }
+        val del = deleted.associate { (it.kind + "/" + it.id) to it.deletedAt }
+        fun alive(kind: String, key: String, updatedAt: String) = del["$kind/$key"]?.let { updatedAt > it } ?: true
         commit(data.copy(
-            accounts = m(data.accounts, incoming.accounts, { it.id }, { it.updatedAt }),
+            accounts = m(data.accounts, incoming.accounts, { it.id }, { it.updatedAt }).filter { alive("account", it.id, it.updatedAt) },
             transactions = m(data.transactions, incoming.transactions, { it.id }, { it.updatedAt }).filter { it.id !in dead },
-            scheduled = m(data.scheduled, incoming.scheduled, { it.id }, { it.updatedAt }),
-            budgets = m(data.budgets, incoming.budgets, { it.categoryId + (it.month ?: "") }, { it.updatedAt }),
-            goals = m(data.goals, incoming.goals, { it.id }, { it.updatedAt }),
-            lists = m(data.lists, incoming.lists, { it.id }, { it.updatedAt }),
+            scheduled = m(data.scheduled, incoming.scheduled, { it.id }, { it.updatedAt }).filter { alive("scheduled", it.id, it.updatedAt) },
+            budgets = m(data.budgets, incoming.budgets, { it.key }, { it.updatedAt }).filter { alive("budget", it.key, it.updatedAt) },
+            goals = m(data.goals, incoming.goals, { it.id }, { it.updatedAt }).filter { alive("goal", it.id, it.updatedAt) },
+            lists = m(data.lists, incoming.lists, { it.id }, { it.updatedAt }).filter { alive("list", it.id, it.updatedAt) },
             tombstones = (data.tombstones + incoming.tombstones).distinctBy { it.id }.takeLast(2000),
+            deleted = deleted.sortedBy { it.deletedAt }.takeLast(2000),
             profile = if (incoming.profile.updatedAt > data.profile.updatedAt) incoming.profile else data.profile,
         ))
     }
@@ -274,6 +288,7 @@ object Store {
         .put("goals", JSONArray(d.goals.map(Json::goal)))
         .put("shoppingLists", JSONArray(d.lists.map(Json::list)))
         .put("deletedTransactions", JSONArray(d.tombstones.map { JSONObject().put("id", it.id).put("deletedAt", it.deletedAt) }))
+        .put("deletedItems", JSONArray(d.deleted.map { JSONObject().put("type", it.kind).put("id", it.id).put("deletedAt", it.deletedAt) }))
         .put("rates", JSONObject().put("usd", d.rates.usd).put("eur", d.rates.eur).put("updatedAt", d.rates.updatedAt ?: "").put("manual", d.rates.manual)
             .put("bcvUsd", d.rates.bcvUsd).put("bcvEur", d.rates.bcvEur).put("usdPar", d.rates.usdPar).put("eurPar", d.rates.eurPar).put("parallel", d.rates.parallel))
 
@@ -286,6 +301,7 @@ object Store {
             o.optJSONArray("shoppingItems")?.takeIf { it.length() > 0 }?.let { listOf(Json.list(JSONObject().put("id", "legacy-items").put("name", "Lista de compras").put("items", it))) }.orEmpty()
         },
         Json.arr(o, "deletedTransactions") { Tombstone(it.getString("id"), it.optString("deletedAt")) },
+        Json.arr(o, "deletedItems") { Deleted(it.getString("type"), it.getString("id"), it.optString("deletedAt")) },
         o.optJSONObject("rates")?.let { Rates(it.optDouble("usd", 0.0), it.optDouble("eur", 0.0), it.optString("updatedAt").ifEmpty { null }, it.optBoolean("manual"),
             it.optDouble("bcvUsd", it.optDouble("usd", 0.0)), it.optDouble("bcvEur", it.optDouble("eur", 0.0)), it.optDouble("usdPar", 0.0),
             it.optDouble("eurPar", 0.0), it.optBoolean("parallel")) } ?: Rates(),

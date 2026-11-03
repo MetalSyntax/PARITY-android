@@ -189,4 +189,21 @@ class StoreTest {
         assertTrue(p("parity_sync_2026-11-03T00-10-20.963Z.json", today))    // formato viejo de la app
         assertFalse(p("parity_sync_raro.json", today))                       // nombres desconocidos no se tocan
     }
+
+    @Test fun deletedListsDoNotComeBackOnSyncUnlessEditedLater() {
+        val old = ShoppingList(name = "Chinos", updatedAt = "2026-11-01T10:00:00Z")
+        Store.merge(AppData(lists = listOf(old)))                       // llega de Drive
+        Store.deleteList(old.id)                                         // el usuario la borra
+        Store.merge(AppData(lists = listOf(old)))                       // Drive todavía la tiene
+        assertTrue(Store.data.lists.isEmpty())
+        assertTrue(Store.decode(Store.encode(Store.data)).deleted.any { it.kind == "list" && it.id == old.id }) // el borrado viaja en el JSON
+        Store.merge(AppData(lists = listOf(old.copy(name = "Chinos 2", updatedAt = "2099-01-01T00:00:00Z")))) // editada después en otro lado
+        assertEquals(listOf("Chinos 2"), Store.data.lists.map { it.name })
+    }
+
+    @Test fun webListWithoutUpdatedAtStaysDeleted() {
+        val web = Store.decode(org.json.JSONObject("""{"shoppingLists":[{"id":"L1","name":"Emporium","items":[],"createdAt":"2026-10-01T00:00:00Z"}]}"""))
+        Store.merge(web); Store.deleteList("L1"); Store.merge(web)
+        assertTrue(Store.data.lists.isEmpty())
+    }
 }
