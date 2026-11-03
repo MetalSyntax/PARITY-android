@@ -263,7 +263,8 @@
 "kt_drive_not_registered": "la app Android no está registrada en Google Cloud (código 10)",
 "kt_copy_prev_month": "Copiar sobres del mes anterior",
 "kt_calculator": "Calculadora",
-"kt_drive_saved": "Respaldo del día guardado en Drive"
+"kt_drive_saved": "Respaldo del día guardado en Drive",
+"kt_scroll_more": "Desliza para ver más campos"
 },
 "en": {
 "kt_achieved": "Achieved!",
@@ -529,7 +530,8 @@
 "kt_drive_not_registered": "the Android app is not registered in Google Cloud (code 10)",
 "kt_copy_prev_month": "Copy last month's envelopes",
 "kt_calculator": "Calculator",
-"kt_drive_saved": "Today's backup saved to Drive"
+"kt_drive_saved": "Today's backup saved to Drive",
+"kt_scroll_more": "Scroll for more fields"
 },
 "pt": {
 "kt_achieved": "Concluída!",
@@ -795,6 +797,7 @@
 "kt_drive_not_registered": "o app Android não está registrado no Google Cloud (código 10)",
 "kt_copy_prev_month": "Copiar envelopes do mês anterior",
 "kt_calculator": "Calculadora",
-"kt_drive_saved": "Backup do dia salvo no Drive"
+"kt_drive_saved": "Backup do dia salvo no Drive",
+"kt_scroll_more": "Deslize para ver mais campos"
 }
 }

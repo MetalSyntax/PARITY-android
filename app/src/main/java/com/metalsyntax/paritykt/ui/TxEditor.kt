@@ -24,6 +24,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.foundation.verticalScroll
+import kotlinx.coroutines.launch
+import androidx.compose.animation.core.animateFloat
 import com.metalsyntax.paritykt.data.*
 import java.time.Instant
 import java.time.LocalDate
@@ -59,6 +62,7 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
     var date by remember { mutableStateOf(initial?.date?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() } ?: LocalDate.now()) }
     var pick by remember { mutableStateOf<String?>(null) } // "wallet" | "to" | "category" | "date"
     var confirmDelete by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     val value = if (Calc.isExpression(amount)) Calc.eval(amount) else parseAmount(amount)
     val feeTotal = (parseAmount(fee) ?: 0.0) + (value ?: 0.0) * (parseAmount(percent) ?: 0.0) / 100
@@ -84,7 +88,10 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
     }
 
     Dialog(onDismissRequest = onDone, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Column(Modifier.fillMaxSize().background(Bg).systemBarsPadding().imePadding().padding(horizontal = 16.dp)) {
+        // el teclado de Android se superpone (no redimensiona ni empuja la pantalla)
+        val view = androidx.compose.ui.platform.LocalView.current
+        SideEffect { (view.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING) }
+        Column(Modifier.fillMaxSize().background(Bg).systemBarsPadding().padding(horizontal = 16.dp)) {
             // encabezado
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 RoundIcon(Icons.Outlined.ArrowBack, t("back"), onDone)
@@ -105,7 +112,9 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
                     }
                 }
             }
-            Column(Modifier.weight(1f).verticalScrollable()) {
+            val sc = androidx.compose.foundation.rememberScrollState()
+            Box(Modifier.weight(1f)) {
+            Column(Modifier.verticalScroll(sc)) {
                 // monto grande
                 Column(Modifier.fillMaxWidth().padding(top = 14.dp).tap(onClick = { focus = Focus.AMOUNT }), horizontalAlignment = Alignment.CenterHorizontally) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -160,6 +169,21 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
                         }
                     }
                 }
+            }
+            // aviso de que hay más campos abajo (nota, billetera, categoría, fecha) cuando el teclado los tapa
+            androidx.compose.animation.AnimatedVisibility(sc.canScrollForward, Modifier.align(Alignment.BottomCenter),
+                enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) {
+                Box(Modifier.fillMaxWidth().height(56.dp).background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Bg))),
+                    contentAlignment = Alignment.BottomCenter) {
+                    val bounce by androidx.compose.animation.core.rememberInfiniteTransition(label = "hint").animateFloat(0f, 5f,
+                        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(700), androidx.compose.animation.core.RepeatMode.Reverse), label = "y")
+                    Row(Modifier.offset(y = (-bounce).dp).clip(CircleShape).background(Surface2).tap(onClick = { scope.launch { sc.animateScrollTo(sc.maxValue) } })
+                        .padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.KeyboardArrowDown, null, tint = Brand, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp))
+                        Text(t("kt_scroll_more"), style = MaterialTheme.typography.labelSmall, color = Ink)
+                    }
+                }
+            }
             }
             // calculadora (operaciones) y teclado numérico
             AnimatedVisibility(calc) {
