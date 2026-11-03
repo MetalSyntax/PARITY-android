@@ -179,4 +179,14 @@ class StoreTest {
         Store.deleteTx(e.id)                                                   // revertir usa la tasa guardada
         assertEquals(4000.0, bal(ves), 1e-9)
     }
+
+    @Test fun drivePrunesOnlyOldDailyAndLegacySyncFiles() {
+        val today = java.time.LocalDate.of(2026, 11, 2)
+        val p = com.metalsyntax.paritykt.sync.Sync::pruneable
+        assertFalse(p("parity_sync_2026-11-02.json", today))                 // el de hoy
+        assertFalse(p("parity_sync_2026-10-05.json", today))                 // dentro de 30 días
+        assertTrue(p("parity_sync_2026-09-30.json", today))                  // más viejo
+        assertTrue(p("parity_sync_2026-11-03T00-10-20.963Z.json", today))    // formato viejo de la app
+        assertFalse(p("parity_sync_raro.json", today))                       // nombres desconocidos no se tocan
+    }
 }

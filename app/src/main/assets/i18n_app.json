@@ -32,7 +32,7 @@
 "kt_drive_denied": "Drive: permiso no concedido",
 "kt_drive_desc": "Mezcla con la copia de Parity web en tu Google Drive",
 "kt_drive_first": "Primer respaldo en Drive creado",
-"kt_drive_last": "Última: {0}",
+"kt_drive_last": "Automática: al abrir, 30 s después de cada cambio y al salir · respaldo diario, se guardan 30 días · última: {0}",
 "kt_drive_merged": "Sincronizado: {0} elementos mezclados desde Drive",
 "kt_drive_sync": "Sincronizar con Google Drive",
 "kt_drive_unavailable": "Drive no disponible: {0}",
@@ -262,7 +262,8 @@
 "kt_bio_on": "Huella activada",
 "kt_drive_not_registered": "la app Android no está registrada en Google Cloud (código 10)",
 "kt_copy_prev_month": "Copiar sobres del mes anterior",
-"kt_calculator": "Calculadora"
+"kt_calculator": "Calculadora",
+"kt_drive_saved": "Respaldo del día guardado en Drive"
 },
 "en": {
 "kt_achieved": "Achieved!",
@@ -297,7 +298,7 @@
 "kt_drive_denied": "Drive: permission not granted",
 "kt_drive_desc": "Merges with Parity web's copy in your Google Drive",
 "kt_drive_first": "First Drive backup created",
-"kt_drive_last": "Last: {0}",
+"kt_drive_last": "Automatic: on open, 30 s after each change and on exit · daily backup, 30 days kept · last: {0}",
 "kt_drive_merged": "Synced: {0} items merged from Drive",
 "kt_drive_sync": "Sync with Google Drive",
 "kt_drive_unavailable": "Drive unavailable: {0}",
@@ -527,7 +528,8 @@
 "kt_bio_on": "Fingerprint enabled",
 "kt_drive_not_registered": "the Android app is not registered in Google Cloud (code 10)",
 "kt_copy_prev_month": "Copy last month's envelopes",
-"kt_calculator": "Calculator"
+"kt_calculator": "Calculator",
+"kt_drive_saved": "Today's backup saved to Drive"
 },
 "pt": {
 "kt_achieved": "Concluída!",
@@ -562,7 +564,7 @@
 "kt_drive_denied": "Drive: permissão negada",
 "kt_drive_desc": "Mescla com a cópia do Parity web no seu Google Drive",
 "kt_drive_first": "Primeiro backup no Drive criado",
-"kt_drive_last": "Última: {0}",
+"kt_drive_last": "Automática: ao abrir, 30 s após cada mudança e ao sair · backup diário, 30 dias guardados · última: {0}",
 "kt_drive_merged": "Sincronizado: {0} itens mesclados do Drive",
 "kt_drive_sync": "Sincronizar com o Google Drive",
 "kt_drive_unavailable": "Drive indisponível: {0}",
@@ -792,6 +794,7 @@
 "kt_bio_on": "Digital ativada",
 "kt_drive_not_registered": "o app Android não está registrado no Google Cloud (código 10)",
 "kt_copy_prev_month": "Copiar envelopes do mês anterior",
-"kt_calculator": "Calculadora"
+"kt_calculator": "Calculadora",
+"kt_drive_saved": "Backup do dia salvo no Drive"
 }
 }

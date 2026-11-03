@@ -22,6 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.metalsyntax.paritykt.data.*
+import com.metalsyntax.paritykt.sync.AutoDrive
 import com.metalsyntax.paritykt.sync.Sync
 import com.metalsyntax.paritykt.ui.*
 import kotlinx.coroutines.Dispatchers
@@ -44,8 +45,10 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         Store.init(this) {
             pending?.cancel()
             pending = bgScope.launch(Dispatchers.IO) { delay(3000); Sync.autoBackup(this@MainActivity) }
+            AutoDrive.onChange(this, bgScope)
         }
         Reminders.schedule(this)
+        AutoDrive.onOpen(this, bgScope)
         bgScope.launch(Dispatchers.IO) { runCatching { Store.refreshRates() } }
         setContent {
             val dark = Prefs.theme.dark
@@ -66,7 +69,11 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     }
 
     // «Bloquear con PIN al salir»: al volver de segundo plano se pide el PIN
-    override fun onStop() { super.onStop(); if (Pin.enabled && Pin.lockOnExit && !isChangingConfigurations) Pin.locked = true }
+    override fun onStop() {
+        super.onStop()
+        if (Pin.enabled && Pin.lockOnExit && !isChangingConfigurations) Pin.locked = true
+        AutoDrive.onBackground(this, bgScope)
+    }
 
     override fun onDestroy() { super.onDestroy(); pending?.let { if (it.isActive) Sync.autoBackup(this) } }
 }

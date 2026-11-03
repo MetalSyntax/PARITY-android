@@ -100,31 +100,54 @@ object Sync {
         throw IllegalStateException(if (code == 10) com.metalsyntax.paritykt.data.t("kt_drive_not_registered") else "${e.message} (${code ?: "?"})")
     }
 
+    /** Token sin mostrar pantallas (para la sincronización automática); null si Google pide confirmación o falla. */
+    fun silentToken(ctx: Context, onResult: (String?) -> Unit) {
+        val req = AuthorizationRequest.builder().setRequestedScopes(listOf(Scope(SCOPE))).build()
+        Identity.getAuthorizationClient(ctx).authorize(req)
+            .addOnSuccessListener { r -> onResult(if (r.hasResolution()) null else r.accessToken) }
+            .addOnFailureListener { onResult(null) }
+    }
+
+    /** Días que se conservan los parity_sync diarios en Drive (la web no borra solos; aquí sí, para no acumular). */
+    const val KEEP_DAYS = 30
+
     /**
-     * Sincroniza con Drive (bloqueante): baja la copia completa de la web (parity_backup_*) y la mínima (parity_sync_*)
-     * más nuevas, las mezcla (gana el updatedAt más reciente, las lápidas borran) y sube un parity_sync nuevo.
-     * Solo borra parity_sync viejos (deja 5); las copias completas de la web no se tocan.
+     * Sincroniza con Drive (bloqueante), como la web:
+     * - [pull]: baja la copia completa de la web (parity_backup_*) y el parity_sync más nuevo y los mezcla (gana el
+     *   updatedAt más reciente, las lápidas borran). Al abrir la app y con el botón; tras un cambio solo se sube.
+     * - Sube el estado en parity_sync_AAAA-MM-DD.json: un archivo por día que se sobrescribe (respaldo diario).
+     * - Borra los parity_sync de más de [KEEP_DAYS] días y los de la versión anterior de la app (con hora en el nombre).
+     *   Las copias completas parity_backup_* de la web nunca se tocan.
      */
-    fun driveSync(ctx: Context, token: String): String {
+    fun driveSync(ctx: Context, token: String, pull: Boolean = true): String {
         fun list(prefix: String) = (JSONObject(http("https://www.googleapis.com/drive/v3/files?q=" +
             java.net.URLEncoder.encode("name contains '$prefix' and trashed=false", "UTF-8") +
-            "&orderBy=modifiedTime%20desc&pageSize=20&fields=files(id,name,modifiedTime)", token)).optJSONArray("files") ?: JSONArray())
+            "&orderBy=modifiedTime%20desc&pageSize=100&fields=files(id,name,modifiedTime)", token)).optJSONArray("files") ?: JSONArray())
             .let { a -> (0 until a.length()).map { a.getJSONObject(it) }.filter { it.optString("name").startsWith(prefix) } }
         val files = list("parity_sync_")
         var pulled = 0
-        // primero la copia completa (trae planificados, presupuestos, metas y listas), luego la mínima más nueva
-        listOfNotNull(list("parity_backup_").firstOrNull(), files.firstOrNull()).forEach { f ->
+        if (pull) listOfNotNull(list("parity_backup_").firstOrNull(), files.firstOrNull()).forEach { f ->
             val remote = Store.decode(JSONObject(http("https://www.googleapis.com/drive/v3/files/${f.getString("id")}?alt=media", token)))
             pulled += remote.transactions.size + remote.scheduled.size + remote.budgets.size + remote.goals.size
             Store.merge(remote)
         }
-        val name = "parity_sync_${nowIso().replace(":", "-")}.json"
-        val meta = JSONObject(http("https://www.googleapis.com/drive/v3/files", token, "POST", JSONObject().put("name", name).put("mimeType", "application/json").toString()))
-        http("https://www.googleapis.com/upload/drive/v3/files/${meta.getString("id")}?uploadType=media", token, "PATCH", minimal().toString())
-        // deja solo los 5 más nuevos (como el historial de la web)
-        files.drop(4).forEach { f -> runCatching { http("https://www.googleapis.com/drive/v3/files/${f.getString("id")}", token, "DELETE") } }
+        val today = java.time.LocalDate.now()
+        val name = "parity_sync_$today.json"
+        val id = files.firstOrNull { it.optString("name") == name }?.getString("id")
+            ?: JSONObject(http("https://www.googleapis.com/drive/v3/files", token, "POST", JSONObject().put("name", name).put("mimeType", "application/json").toString())).getString("id")
+        http("https://www.googleapis.com/upload/drive/v3/files/$id?uploadType=media", token, "PATCH", minimal().toString())
+        files.filter { f -> pruneable(f.optString("name"), today) }.forEach { f ->
+            runCatching { http("https://www.googleapis.com/drive/v3/files/${f.getString("id")}", token, "DELETE") }
+        }
         ctx.getSharedPreferences(PREFS, 0).edit().putString("last_drive", nowIso()).apply()
-        return if (pulled > 0) com.metalsyntax.paritykt.data.t("kt_drive_merged", pulled) else com.metalsyntax.paritykt.data.t("kt_drive_first")
+        return if (pulled > 0) com.metalsyntax.paritykt.data.t("kt_drive_merged", pulled) else com.metalsyntax.paritykt.data.t("kt_drive_saved")
+    }
+
+    /** parity_sync a borrar: más de [KEEP_DAYS] días, o del formato viejo de la app (parity_sync_2026-11-03T00-10-20…). */
+    internal fun pruneable(name: String, today: java.time.LocalDate): Boolean {
+        val rest = name.removePrefix("parity_sync_").removeSuffix(".json")
+        val day = runCatching { java.time.LocalDate.parse(rest.take(10)) }.getOrNull() ?: return false
+        return rest.length > 10 || day.isBefore(today.minusDays(KEEP_DAYS.toLong()))
     }
 
     /** Payload mínimo de la web (packages/core/src/utils/minimalSync.ts): sin recibos, con lápidas. */
