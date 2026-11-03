@@ -180,44 +180,45 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
                 BrandButton(t("save").uppercase(ES), Modifier.weight(1f).height(56.dp), Icons.Outlined.Check, ok, onClick = ::save)
             }
         }
-    }
-
-    when (pick) {
-        "wallet", "to" -> TitledSheet(t("selectWallet"), onDismiss = { pick = null }) {
-            Spacer(Modifier.height(10.dp))
-            d.accounts.filter { pick == "wallet" || it.id != accountId }.forEach { a ->
-                ListRow(a.name, subtitle = money(a.balance, a.currency), leading = { AccountTile(a.icon) }, color = Bg,
-                    trailingSlot = { if ((if (pick == "wallet") accountId else toId) == a.id) Icon(Icons.Outlined.CheckCircle, null, tint = Brand) }) {
-                    if (pick == "wallet") { accountId = a.id; currency = a.currency; if (toId == a.id) toId = d.accounts.firstOrNull { it.id != a.id }?.id } else toId = a.id
-                    pick = null
-                }
-            }
-        }
-        "category" -> TitledSheet(t("selectCategory"), onDismiss = { pick = null }, scroll = false) {
-            Spacer(Modifier.height(10.dp))
-            LazyVerticalGrid(GridCells.Fixed(4), Modifier.heightIn(max = 520.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(CATEGORIES.filter { it.id != "transfer" && it.income == (type == TxType.INCOME) }, key = { it.id }) { c ->
-                    val on = c.id == cat
-                    Column(Modifier.tap(onClick = { cat = c.id; pick = null }).clip(RoundedCornerShape(16.dp)).background(if (on) catColor(c).copy(alpha = 0.22f) else Bg)
-                        .padding(vertical = 12.dp, horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(icon(c.icon), null, tint = catColor(c), modifier = Modifier.size(24.dp))
-                        Spacer(Modifier.height(6.dp))
-                        Text(c.name, style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp), color = if (on) Ink else Muted,
-                            textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        // dentro del Dialog: si se crean fuera, Android las dibuja detrás de esta ventana
+        when (pick) {
+            "wallet", "to" -> TitledSheet(t("selectWallet"), onDismiss = { pick = null }) {
+                Spacer(Modifier.height(10.dp))
+                d.accounts.filter { pick == "wallet" || it.id != accountId }.forEach { a ->
+                    ListRow(a.name, subtitle = money(a.balance, a.currency), leading = { AccountTile(a.icon) }, color = Bg,
+                        trailingSlot = { if ((if (pick == "wallet") accountId else toId) == a.id) Icon(Icons.Outlined.CheckCircle, null, tint = Brand) }) {
+                        if (pick == "wallet") { accountId = a.id; currency = a.currency; if (toId == a.id) toId = d.accounts.firstOrNull { it.id != a.id }?.id } else toId = a.id
+                        pick = null
                     }
                 }
             }
+            "category" -> TitledSheet(t("selectCategory"), onDismiss = { pick = null }, scroll = false) {
+                Spacer(Modifier.height(10.dp))
+                LazyVerticalGrid(GridCells.Fixed(4), Modifier.heightIn(max = 520.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(CATEGORIES.filter { it.id != "transfer" && it.income == (type == TxType.INCOME) }, key = { it.id }) { c ->
+                        val on = c.id == cat
+                        Column(Modifier.tap(onClick = { cat = c.id; pick = null }).clip(RoundedCornerShape(16.dp)).background(if (on) catColor(c).copy(alpha = 0.22f) else Bg)
+                            .padding(vertical = 12.dp, horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(icon(c.icon), null, tint = catColor(c), modifier = Modifier.size(24.dp))
+                            Spacer(Modifier.height(6.dp))
+                            Text(c.name, style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp), color = if (on) Ink else Muted,
+                                textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+            "date" -> {
+                val st = rememberDatePickerState(initialSelectedDateMillis = date.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli())
+                DatePickerDialog(onDismissRequest = { pick = null },
+                    confirmButton = { TextButton(onClick = { st.selectedDateMillis?.let { date = Instant.ofEpochMilli(it).atZone(ZoneId.of("UTC")).toLocalDate() }; pick = null }) { Text(t("done"), color = Brand) } },
+                    dismissButton = { TextButton(onClick = { pick = null }) { Text(t("cancel"), color = Muted) } }) { DatePicker(st) }
+            }
         }
-        "date" -> {
-            val st = rememberDatePickerState(initialSelectedDateMillis = date.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli())
-            DatePickerDialog(onDismissRequest = { pick = null },
-                confirmButton = { TextButton(onClick = { st.selectedDateMillis?.let { date = Instant.ofEpochMilli(it).atZone(ZoneId.of("UTC")).toLocalDate() }; pick = null }) { Text(t("done"), color = Brand) } },
-                dismissButton = { TextButton(onClick = { pick = null }) { Text(t("cancel"), color = Muted) } }) { DatePicker(st) }
+        if (confirmDelete && initial != null) Confirm(t("kt_delete_q"), t("kt_cannot_undo"), t("delete"), danger = true, onDismiss = { confirmDelete = false }) {
+            Store.deleteTx(initial.id); confirmDelete = false; onDone()
         }
     }
-    if (confirmDelete && initial != null) Confirm(t("kt_delete_q"), t("kt_cannot_undo"), t("delete"), danger = true, onDismiss = { confirmDelete = false }) {
-        Store.deleteTx(initial.id); confirmDelete = false; onDone()
-    }
+
 }
 
 /** Número sin ceros sobrantes para editar en el teclado (12.5, no 12,50). */
