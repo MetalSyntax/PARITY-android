@@ -188,6 +188,7 @@ fun ShoppingScreen(nav: Nav) {
     val d = Store.data
     var openId by remember { mutableStateOf(d.lists.firstOrNull()?.id) }
     var naming by remember { mutableStateOf<ShoppingList?>(null) }
+    var editItem by remember { mutableStateOf<ShoppingItem?>(null) }
     var confirm by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     var qty by remember { mutableStateOf("1") }
@@ -253,14 +254,37 @@ fun ShoppingScreen(nav: Nav) {
                         }
                     },
                     trailingSlot = {
-                        Pill("× ${i.quantity}")
-                        unit?.let { Text(money(it * q), style = MaterialTheme.typography.labelLarge, color = Income); Text(money(inDisplay(it * q, Currency.VES), Currency.VES),
-                            style = MaterialTheme.typography.labelSmall, color = Muted) }
-                    },
-                    onLongClick = { save(l.items.filter { it.id != i.id }) }) { save(l.items.map { if (it.id == i.id) it.copy(completed = !i.completed) else it }) }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(horizontalAlignment = Alignment.End) {
+                                Pill("× ${i.quantity}")
+                                unit?.let { Text(money(it * q), style = MaterialTheme.typography.labelLarge, color = Income); Text(money(inDisplay(it * q, Currency.VES), Currency.VES),
+                                    style = MaterialTheme.typography.labelSmall, color = Muted) }
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            // editar y eliminar, como los botones de cada producto en la web
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                RoundIcon(Icons.Outlined.Edit, t("edit"), { editItem = i }, tint = Brand, size = 32.dp, bg = Bg)
+                                RoundIcon(Icons.Outlined.Delete, t("delete"), { save(l.items.filter { it.id != i.id }) }, tint = Expense, size = 32.dp, bg = Bg)
+                            }
+                        }
+                    }) { save(l.items.map { if (it.id == i.id) it.copy(completed = !i.completed) else it }) }
             }
             if (l.items.isNotEmpty()) item { Text(t("kt_shopping_hint"), Modifier.fillMaxWidth().padding(16.dp), style = MaterialTheme.typography.bodySmall,
                 color = Muted, textAlign = TextAlign.Center) }
+        }
+    }
+    editItem?.let { i ->
+        var n by remember(i) { mutableStateOf(i.name) }
+        var q by remember(i) { mutableStateOf(i.quantity) }
+        var p by remember(i) { mutableStateOf(i.price?.let(::num) ?: "") }
+        FormSheet(t("edit"), { editItem = null }, saveEnabled = n.isNotBlank(), onSave = {
+            save(l!!.items.map { if (it.id == i.id) it.copy(name = n.trim(), quantity = q.ifBlank { "1" }, price = parseAmount(p)) else it }); editItem = null
+        }, onDelete = { save(l!!.items.filter { it.id != i.id }); editItem = null }) {
+            Field(n, { n = it }, t("kt_product"))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Field(q, { q = it }, t("kt_qty"), modifier = Modifier.weight(1f))
+                Field(p, { p = it }, t("kt_price"), number = true, modifier = Modifier.weight(1.3f), suffix = "$")
+            }
         }
     }
     naming?.let { x ->
