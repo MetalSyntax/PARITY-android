@@ -264,7 +264,12 @@
 "kt_copy_prev_month": "Copiar sobres del mes anterior",
 "kt_calculator": "Calculadora",
 "kt_drive_saved": "Respaldo del día guardado en Drive",
-"kt_scroll_more": "Desliza para ver más campos"
+"kt_scroll_more": "Desliza para ver más campos",
+"kt_drive_restore": "Restaurar desde Drive",
+"kt_drive_restore_desc": "Elige un respaldo de Drive (web o app); la sincronización automática sigue igual",
+"kt_drive_none": "No hay respaldos de Parity en tu Drive",
+"kt_drive_full": "Respaldo completo",
+"kt_drive_minimal": "Sincronización"
 },
 "en": {
 "kt_achieved": "Achieved!",
@@ -531,7 +536,12 @@
 "kt_copy_prev_month": "Copy last month's envelopes",
 "kt_calculator": "Calculator",
 "kt_drive_saved": "Today's backup saved to Drive",
-"kt_scroll_more": "Scroll for more fields"
+"kt_scroll_more": "Scroll for more fields",
+"kt_drive_restore": "Restore from Drive",
+"kt_drive_restore_desc": "Pick a Drive backup (web or app); automatic sync stays as is",
+"kt_drive_none": "No Parity backups in your Drive",
+"kt_drive_full": "Full backup",
+"kt_drive_minimal": "Sync"
 },
 "pt": {
 "kt_achieved": "Concluída!",
@@ -798,6 +808,11 @@
 "kt_copy_prev_month": "Copiar envelopes do mês anterior",
 "kt_calculator": "Calculadora",
 "kt_drive_saved": "Backup do dia salvo no Drive",
-"kt_scroll_more": "Deslize para ver mais campos"
+"kt_scroll_more": "Deslize para ver mais campos",
+"kt_drive_restore": "Restaurar do Drive",
+"kt_drive_restore_desc": "Escolha um backup do Drive (web ou app); a sincronização automática continua igual",
+"kt_drive_none": "Não há backups do Parity no seu Drive",
+"kt_drive_full": "Backup completo",
+"kt_drive_minimal": "Sincronização"
 }
 }

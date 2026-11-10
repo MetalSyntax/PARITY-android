@@ -76,6 +76,13 @@ class StoreTest {
         assertEquals("2026-12-01", Store.data.scheduled.first().date)
     }
 
+    @Test fun scheduledInUsdPaidFromBolivarWalletIsConverted() {
+        val s = ScheduledPayment(name = "Netflix", amount = 10.0, currency = Currency.USD, date = "2026-11-01", frequency = Frequency.MONTHLY, accountId = ves.id)
+        Store.saveScheduled(s)
+        assertTrue(Store.postScheduled(s))
+        assertEquals(3600.0, bal(ves), 1e-9) // 10 $ × 40, no 10 Bs
+    }
+
     /** Respaldo completo como lo arma la web (useGoogleDriveSync localData): todas las secciones deben entrar. */
     @Test fun webFullBackupImportsEverySection() {
         val web = org.json.JSONObject("""{

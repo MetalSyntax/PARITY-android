@@ -201,7 +201,7 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
                 Box(Modifier.size(56.dp).tap(onClick = { calc = !calc }).clip(RoundedCornerShape(18.dp)).background(if (calc) Brand else Surface1), contentAlignment = Alignment.Center) {
                     Icon(Icons.Outlined.Calculate, t("kt_calculator"), tint = if (calc) Color.White else Muted)
                 }
-                BrandButton(t("save").uppercase(ES), Modifier.weight(1f).height(56.dp), Icons.Outlined.Check, ok, onClick = ::save)
+                BrandButton(t("save").uppercase(ES), Modifier.weight(1f).height(56.dp), Icons.Outlined.Check, ok) { save() } // no ::save: Compose memoriza la referencia sin claves y guardaba el primer monto tecleado
             }
         }
         // dentro del Dialog: si se crean fuera, Android las dibuja detrás de esta ventana

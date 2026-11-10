@@ -174,7 +174,7 @@ object Store {
     /** Registra el pago como transacción y avanza a la próxima fecha (los de una vez se eliminan). */
     fun postScheduled(s: ScheduledPayment, accountId: String? = s.accountId): Boolean {
         val acc = data.account(accountId) ?: return false
-        saveTx(Transaction(amount = s.amount, originalCurrency = acc.currency, exchangeRate = 0.0, normalizedAmountUSD = 0.0,
+        saveTx(Transaction(amount = s.amount, originalCurrency = s.currency,exchangeRate = 0.0, normalizedAmountUSD = 0.0,
             type = s.type, category = s.category, accountId = acc.id, note = s.name, date = LocalDate.parse(s.date).atStartOfDay().toString(), scheduledId = s.id))
         if (s.frequency == Frequency.ONCE) deleteScheduled(s.id) else saveScheduled(s.copy(date = next(LocalDate.parse(s.date), s.frequency).toString()))
         return true

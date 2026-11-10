@@ -310,11 +310,16 @@ private fun estimate(l: ShoppingList): Double? = l.items.mapNotNull { i ->
 fun rememberDriveSync(nav: Nav): () -> Unit {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    var pending by remember { mutableStateOf(false) }
-    fun run(token: String) = scope.launch {
-        val r = withContext(Dispatchers.IO) { runCatching { Sync.driveSync(ctx, token) }.getOrElse { "Drive: ${it.message}" } }
-        nav.snack(r)
+    return rememberDriveToken(nav) { token ->
+        scope.launch { nav.snack(withContext(Dispatchers.IO) { runCatching { Sync.driveSync(ctx, token) }.getOrElse { "Drive: ${it.message}" } }) }
     }
+}
+
+/** Pide el permiso de Drive (pantalla de Google si hace falta) y llama a [run] con el token. */
+@Composable
+fun rememberDriveToken(nav: Nav, run: (String) -> Unit): () -> Unit {
+    val ctx = LocalContext.current
+    var pending by remember { mutableStateOf(false) }
     val consent = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
         if (pending) Sync.tokenFrom(ctx as Activity, r.data).onSuccess { run(it) }.onFailure { nav.snack("Drive: ${it.message}") }
         pending = false
@@ -342,6 +347,17 @@ fun ProfileScreen(nav: Nav) {
     var reset by remember { mutableStateOf(false) }
     var devTaps by remember { mutableIntStateOf(0) }
     val drive = rememberDriveSync(nav)
+    var driveFiles by remember { mutableStateOf<List<org.json.JSONObject>?>(null) }
+    var driveToken by remember { mutableStateOf("") }
+    // restaurar a mano un respaldo de Drive (como «Restaurar» de la web): no toca la sincronización automática
+    val driveRestore = rememberDriveToken(nav) { token ->
+        driveToken = token; busy = true
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { runCatching { Sync.driveBackups(token) } }
+            busy = false
+            r.onSuccess { driveFiles = it }.onFailure { nav.snack("Drive: ${it.message}") }
+        }
+    }
 
     fun bg(label: String, work: () -> String) {
         busy = true
@@ -448,6 +464,8 @@ fun ProfileScreen(nav: Nav) {
                 }
                 if (Prefs.dev) SettingRow(t("kt_drive_sync"), remember(tick) { Sync.lastDrive(ctx) }?.let { t("kt_drive_last", ago(it)) } ?: t("kt_drive_desc"),
                     icon = Icons.Outlined.Cloud, tint = Warning, onClick = drive) { Chevron() }
+                if (Prefs.dev) SettingRow(t("kt_drive_restore"), t("kt_drive_restore_desc"), icon = Icons.Outlined.CloudDownload, tint = Warning,
+                    onClick = driveRestore) { Chevron() }
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp), color = Brand, trackColor = Glass)
             }
         }
@@ -476,7 +494,7 @@ fun ProfileScreen(nav: Nav) {
                     Box(Modifier.size(6.dp).clip(CircleShape).background(if (Prefs.dev) Warning else Brand)); Spacer(Modifier.width(8.dp))
                     Text("PARITY", style = MaterialTheme.typography.labelMedium, color = Ink, letterSpacing = 3.sp)
                 }
-                Text("v0.2 · Kotlin" + if (Prefs.dev) " · ${t("devMode")}" else "", style = MaterialTheme.typography.labelSmall, color = Muted)
+                Text("v${com.metalsyntax.paritykt.BuildConfig.VERSION_NAME} · Kotlin" + if (Prefs.dev) " · ${t("devMode")}" else "", style = MaterialTheme.typography.labelSmall, color = Muted)
             }
         }
     }
@@ -489,6 +507,24 @@ fun ProfileScreen(nav: Nav) {
         Store.replaceAll(AppData(profile = UserProfile(language = d.profile.language)))
         Reminders.schedule(ctx)
         name = ""; nav.snack(t("kt_data_deleted")); nav.back()
+    }
+    driveFiles?.let { files ->
+        TitledSheet(t("kt_drive_restore"), onDismiss = { driveFiles = null }) {
+            Spacer(Modifier.height(10.dp))
+            if (files.isEmpty()) Text(t("kt_drive_none"), color = Muted)
+            files.forEach { f ->
+                val full = f.optString("name").startsWith("parity_backup_")
+                ListRow(f.optString("name"), subtitle = (if (full) t("kt_drive_full") else t("kt_drive_minimal")) + " · " + ago(f.optString("modifiedTime")),
+                    icon = if (full) Icons.Outlined.Backup else Icons.Outlined.CloudSync, tint = if (full) Brand else Warning, color = Bg) {
+                    driveFiles = null; busy = true
+                    scope.launch {
+                        val r = withContext(Dispatchers.IO) { runCatching { Sync.driveRead(driveToken, f.getString("id")) } }
+                        busy = false
+                        r.onSuccess { importAsk = it }.onFailure { nav.snack(t("kt_not_a_backup")) }
+                    }
+                }
+            }
+        }
     }
     importAsk?.let { (data, minimal) ->
         Confirm(t("kt_import_backup"), "", t("kt_merge"), onDismiss = { importAsk = null }, content = {

@@ -113,21 +113,18 @@ object Sync {
 
     /**
      * Sincroniza con Drive (bloqueante), como la web:
-     * - [pull]: baja la copia completa de la web (parity_backup_*) y el parity_sync más nuevo y los mezcla (gana el
-     *   updatedAt más reciente, las lápidas borran). Al abrir la app y con el botón; tras un cambio solo se sube.
+     * - [pull]: baja el parity_sync más nuevo y lo mezcla (gana el updatedAt más reciente, las lápidas borran). Al abrir
+     *   la app y con el botón; tras un cambio solo se sube. Los respaldos completos parity_backup_* NO entran aquí:
+     *   como en la web, se restauran solo a mano ([driveBackups] + [driveRead]).
      * - Sube el estado en parity_sync_AAAA-MM-DD.json: un archivo por día que se sobrescribe (respaldo diario).
      * - Borra los parity_sync de más de [KEEP_DAYS] días y los de la versión anterior de la app (con hora en el nombre).
      *   Las copias completas parity_backup_* de la web nunca se tocan.
      */
     fun driveSync(ctx: Context, token: String, pull: Boolean = true): String {
-        fun list(prefix: String) = (JSONObject(http("https://www.googleapis.com/drive/v3/files?q=" +
-            java.net.URLEncoder.encode("name contains '$prefix' and trashed=false", "UTF-8") +
-            "&orderBy=modifiedTime%20desc&pageSize=100&fields=files(id,name,modifiedTime)", token)).optJSONArray("files") ?: JSONArray())
-            .let { a -> (0 until a.length()).map { a.getJSONObject(it) }.filter { it.optString("name").startsWith(prefix) } }
-        val files = list("parity_sync_")
+        val files = list(token, "parity_sync_")
         var pulled = 0
-        if (pull) listOfNotNull(list("parity_backup_").firstOrNull(), files.firstOrNull()).forEach { f ->
-            val remote = Store.decode(JSONObject(http("https://www.googleapis.com/drive/v3/files/${f.getString("id")}?alt=media", token)))
+        if (pull) files.firstOrNull()?.let { f ->
+            val remote = driveRead(token, f.getString("id")).first
             pulled += remote.transactions.size + remote.scheduled.size + remote.budgets.size + remote.goals.size
             Store.merge(remote)
         }
@@ -141,6 +138,20 @@ object Sync {
         }
         ctx.getSharedPreferences(PREFS, 0).edit().putString("last_drive", nowIso()).apply()
         return if (pulled > 0) com.metalsyntax.paritykt.data.t("kt_drive_merged", pulled) else com.metalsyntax.paritykt.data.t("kt_drive_saved")
+    }
+
+    private fun list(token: String, prefix: String) = (JSONObject(http("https://www.googleapis.com/drive/v3/files?q=" +
+        java.net.URLEncoder.encode("name contains '$prefix' and trashed=false", "UTF-8") +
+        "&orderBy=modifiedTime%20desc&pageSize=100&fields=files(id,name,modifiedTime,size)", token)).optJSONArray("files") ?: JSONArray())
+        .let { a -> (0 until a.length()).map { a.getJSONObject(it) }.filter { it.optString("name").startsWith(prefix) } }
+
+    /** Respaldos en Drive para elegir a mano (lista de la web): completos parity_backup_* primero, luego los parity_sync_*. Bloqueante. */
+    fun driveBackups(token: String): List<JSONObject> = list(token, "parity_backup_") + list(token, "parity_sync_")
+
+    /** Lee un archivo de Drive como [read]: datos + si es el formato mínimo. Bloqueante. */
+    fun driveRead(token: String, id: String): Pair<AppData, Boolean> {
+        val o = JSONObject(http("https://www.googleapis.com/drive/v3/files/$id?alt=media", token))
+        return Store.decode(o) to (o.optString("__backupType") == "minimal")
     }
 
     /** parity_sync a borrar: más de [KEEP_DAYS] días, o del formato viejo de la app (parity_sync_2026-11-03T00-10-20…). */
