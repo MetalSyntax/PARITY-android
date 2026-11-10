@@ -1,5 +1,8 @@
 package com.metalsyntax.paritykt.ui
 
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -174,30 +177,35 @@ private fun rippleInd() = androidx.compose.material.ripple.rememberRipple(color 
  * Reordenar arrastrando en un LazyColumn (los DnD de la web). Los ítems usan [reorderItem] y el asa [DragHandle];
  * [onMove] recibe las claves (origen, destino) y la vista mueve su lista (ver [move]).
  */
-class ReorderState(private val list: LazyListState) {
+class ReorderState(private val list: LazyListState?) {
     var onMove: (Any, Any) -> Unit = { _, _ -> }
     var dragging by mutableStateOf<Any?>(null); private set
     var offset by mutableFloatStateOf(0f); private set
+    /** Sin LazyListState (Column normal): posición y alto de cada fila, de [reorderItem]. */
+    internal val placed = HashMap<Any, Pair<Int, Int>>()
     fun start(key: Any) { dragging = key; offset = 0f }
     fun end() { dragging = null; offset = 0f }
     fun drag(dy: Float, keys: Set<Any>) {
         offset += dy
-        val info = list.layoutInfo.visibleItemsInfo
-        val cur = info.firstOrNull { it.key == dragging } ?: return
-        val mid = cur.offset + offset + cur.size / 2f
-        val target = info.firstOrNull { it.key != dragging && it.key in keys && mid >= it.offset && mid <= it.offset + it.size } ?: return
-        onMove(cur.key, target.key)
-        offset += cur.offset - target.offset // el ítem salta a la posición del destino: compensar para que siga bajo el dedo
+        val info = list?.layoutInfo?.visibleItemsInfo?.map { Triple(it.key, it.offset, it.size) }
+            ?: placed.map { (k, v) -> Triple(k, v.first, v.second) }
+        val cur = info.firstOrNull { it.first == dragging } ?: return
+        val mid = cur.second + offset + cur.third / 2f
+        val target = info.firstOrNull { it.first != dragging && it.first in keys && mid >= it.second && mid <= it.second + it.third } ?: return
+        onMove(cur.first, target.first)
+        offset += cur.second - target.second // el ítem salta a la posición del destino: compensar para que siga bajo el dedo
     }
 }
 
+/** [list] = null para una Column normal: listas cortas que se reordenan sin la precarga del LazyColumn. */
 @Composable
-fun rememberReorder(list: LazyListState, onMove: (Any, Any) -> Unit) = remember(list) { ReorderState(list) }.also { it.onMove = onMove }
+fun rememberReorder(list: LazyListState?, onMove: (Any, Any) -> Unit) = remember(list) { ReorderState(list) }.also { it.onMove = onMove }
 
 fun Modifier.reorderItem(st: ReorderState, key: Any) = composed {
     val on = st.dragging == key
     val lift by animateFloatAsState(if (on) 1.03f else 1f, label = "lift")
-    zIndex(if (on) 1f else 0f).graphicsLayer { translationY = if (on) st.offset else 0f; scaleX = lift; scaleY = lift; shadowElevation = if (on) 24f else 0f }
+    // antes del graphicsLayer: posición de la fila sin el desplazamiento del arrastre
+    onPlaced { st.placed[key] = it.positionInParent().y.toInt() to it.size.height }.zIndex(if (on) 1f else 0f).graphicsLayer { translationY = if (on) st.offset else 0f; scaleX = lift; scaleY = lift; shadowElevation = if (on) 24f else 0f }
 }
 
 /** Asa de arrastre (⋮⋮): mantener presionado y mover. [keys] = claves que admiten intercambio. */
@@ -700,10 +708,19 @@ fun CurrencyPill(c: Currency, options: List<Currency> = Currency.entries, onPick
 @Composable
 fun DisplayCurrencyButton(size: Dp = 44.dp) {
     val cur = Prefs.display
-    Box(Modifier.size(size).tap(onClick = Prefs::cycleDisplay).clip(CircleShape).background(if (cur != Currency.USD) Brand else Surface1),
+    val col by animateColorAsState(currencyColor(cur), label = "cur")
+    Box(Modifier.size(size).tap(onClick = Prefs::cycleDisplay).clip(CircleShape).background(col.copy(alpha = 0.18f)),
         contentAlignment = Alignment.Center) {
-        Text(if (cur == Currency.VES) "Bs" else symbol(cur), color = if (cur != Currency.USD) Color.White else Ink, style = MaterialTheme.typography.labelLarge)
+        Text(if (cur == Currency.VES) "Bs" else symbol(cur), color = col, style = MaterialTheme.typography.labelLarge)
     }
+}
+
+/** Color propio de cada moneda: $ verde (como la tasa USD del encabezado), Bs ámbar, € azul (tasa EUR), USDT verde Tether. */
+fun currencyColor(c: Currency): Color = when (c) {
+    Currency.USD -> RateUsd
+    Currency.VES -> Color(0xFFFBBF24) // amber-400
+    Currency.EUR -> RateEur
+    Currency.USDT -> Color(0xFF26A17B)
 }
 
 /** Selector de mes en cápsula con menú (el «2026-11 ⌄» de Presupuestos de la web). */

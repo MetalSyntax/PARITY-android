@@ -82,6 +82,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
 private fun App(start: Route) {
     var route by remember { mutableStateOf(start) }
     var editing by remember { mutableStateOf<Transaction?>(null) }
+    var detail by remember { mutableStateOf<Transaction?>(null) } // tocar una transacción abre la vista detallada, no el editor
     var newType by remember { mutableStateOf<TxType?>(null) }
     var settings by remember { mutableStateOf(false) }
     var tutorial by remember { mutableStateOf<Tutorial?>(null) }
@@ -90,7 +91,7 @@ private fun App(start: Route) {
     val scope = rememberCoroutineScope()
     BackHandler(enabled = route != Route.HOME) { route = Route.HOME }
     val nav = remember {
-        Nav(go = { route = it }, back = { route = Route.HOME }, newTx = { newType = it }, openTx = { editing = it },
+        Nav(go = { route = it }, back = { route = Route.HOME }, newTx = { newType = it }, openTx = { detail = it },
             snack = { m -> scope.launch { snackbar.showSnackbar(m) } }, settings = { settings = true },
             tutorial = { tu -> tutorial = tu; tStep = 0; tu.steps.first()?.let { route = it } })
     }
@@ -123,6 +124,7 @@ private fun App(start: Route) {
             if (tStep + 1 >= tu.steps.size) tutorial = null else { tStep++; tu.steps[tStep]?.let { route = it } }
         }, onClose = { tutorial = null })
     }
+    detail?.let { tx -> TxDetail(tx, onEdit = { detail = null; editing = it }, onClose = { detail = null }) }
     if (editing != null || newType != null) TxEditor(editing, newType ?: TxType.EXPENSE) { editing = null; newType = null }
     if (settings) SettingsSheet(nav) { settings = false }
 }
@@ -131,12 +133,14 @@ private fun App(start: Route) {
 @Composable
 private fun BottomBar(route: Route, go: (Route) -> Unit, onAdd: () -> Unit) {
     val items = listOf(Route.HOME) + Prefs.favorites.filter { it != Route.HOME }.take(3)
+    // un solo tamaño de letra para toda la barra: baja hasta que la etiqueta más larga entre sin partirse
+    var scale by remember(items) { mutableFloatStateOf(1f) }
     Box(Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(top = 18.dp).background(Surface1)) {
-            Row(Modifier.fillMaxWidth().navigationBarsPadding().height(64.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().navigationBarsPadding().height(64.dp)) {
                 items.forEachIndexed { i, r ->
                     if (i == 2) Spacer(Modifier.width(76.dp))
-                    NavItem(r, route == r, Modifier.weight(1f)) { go(r) }
+                    NavItem(r, route == r, Modifier.weight(1f), scale, onOverflow = { if (scale > 0.6f) scale *= 0.94f }) { go(r) }
                 }
                 if (items.size < 3) Spacer(Modifier.width(76.dp).weight(1f))
             }
@@ -149,11 +153,17 @@ private fun BottomBar(route: Route, go: (Route) -> Unit, onAdd: () -> Unit) {
 }
 
 @Composable
-private fun NavItem(r: Route, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val c by animateColorAsState(if (selected) Brand else Muted.copy(alpha = 0.8f), label = "nav")
-    Column(modifier.fillMaxHeight().tap(onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Icon(routeIcon(r), null, tint = c, modifier = Modifier.size(24.dp))
-        Spacer(Modifier.height(3.dp))
-        Text(t(r.key).uppercase(ES), style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp, letterSpacing = (-0.2).sp), color = c, maxLines = 1, softWrap = false)
+private fun NavItem(r: Route, selected: Boolean, modifier: Modifier, scale: Float, onOverflow: () -> Unit, onClick: () -> Unit) {
+    // como la web: activo en color de texto principal (blanco), el resto en secundario; etiqueta hasta en 2 líneas.
+    // Íconos arriba (no centrados) para que queden en línea aunque una etiqueta ocupe 2 líneas.
+    val c by animateColorAsState(if (selected) Ink else Muted, label = "nav")
+    Column(modifier.fillMaxHeight().tap(onClick = onClick).padding(start = 2.dp, end = 2.dp, top = 9.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(routeIcon(r), null, tint = c, modifier = Modifier.size(26.dp))
+        Spacer(Modifier.height(4.dp))
+        val label = t(r.key).uppercase(ES)
+        val oneWord = ' ' !in label.trim()
+        Text(label, style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp * scale, lineHeight = 10.sp * scale, letterSpacing = (-0.2).sp),
+            color = c, maxLines = if (oneWord) 1 else 2, softWrap = !oneWord, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            onTextLayout = { if (it.hasVisualOverflow) onOverflow() })
     }
 }

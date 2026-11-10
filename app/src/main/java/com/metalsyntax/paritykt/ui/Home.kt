@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -389,39 +390,35 @@ private fun ExpenseStructure(expenses: List<Transaction>, onOpen: () -> Unit) {
 /** Personalizar Dashboard de la web: widgets (mostrar/ocultar y arrastrar para ordenar), acciones rápidas y privacidad. */
 @Composable
 private fun CustomizerSheet(onDismiss: () -> Unit) {
-    val list = rememberLazyListState()
     val wKeys: Set<Any> = Widget.entries.map { "w" + it.name }.toSet()
     val quickAll = Prefs.quick + (QUICK_DEFAULT - Prefs.quick.toSet())
-    val st = rememberReorder(list) { from, to ->
+    // Column y no LazyColumn: la precarga del LazyColumn mientras el arrastre reordena corrompía la composición (crash)
+    val st = rememberReorder(null) { from, to ->
         if (from in wKeys) Prefs.saveWidgets(Prefs.widgets.move(from, to) { "w" + it.name })
         else Prefs.saveQuick(Prefs.quick.move(from, to) { "q" + it.name })
     }
     Sheet(onDismiss) {
-        LazyColumn(state = list, contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 28.dp), modifier = Modifier.heightIn(max = 640.dp)) {
-            item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) { Text(t("kt_customize_dashboard"), style = MaterialTheme.typography.headlineSmall, color = Ink); Caps(t("layoutControl")) }
-                    RoundIcon(Icons.Outlined.Close, t("close"), onDismiss, tint = Muted, size = 40.dp, bg = Bg)
-                }
-                Section(t("widgets"))
+        Column(Modifier.heightIn(max = 640.dp).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 28.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) { Text(t("kt_customize_dashboard"), style = MaterialTheme.typography.headlineSmall, color = Ink); Caps(t("layoutControl")) }
+                RoundIcon(Icons.Outlined.Close, t("close"), onDismiss, tint = Muted, size = 40.dp, bg = Bg)
             }
-            items(Prefs.widgets, key = { "w" + it.name }) { w ->
+            Section(t("widgets"))
+            Prefs.widgets.forEach { w -> key("w" + w.name) {
                 ListRow(t(w.key), Modifier.reorderItem(st, "w" + w.name), icon = widgetIcon(w), color = Bg, handle = { DragHandle(st, "w" + w.name, wKeys) },
                     trailingSlot = { Toggle(w !in Prefs.hidden) { Prefs.toggleWidget(w) } })
-            }
-            item { Section(t("quickActions")) }
-            items(quickAll, key = { "q" + it.name }) { r ->
+            } }
+            Section(t("quickActions"))
+            quickAll.forEach { r -> key("q" + r.name) {
                 val on = r in Prefs.quick
                 ListRow(t(r.key), Modifier.reorderItem(st, "q" + r.name), icon = routeIcon(r), tint = routeColor(r), color = Bg,
                     handle = if (on) { { DragHandle(st, "q" + r.name, Prefs.quick.map { "q" + it.name }.toSet()) } } else null,
                     trailingSlot = { Toggle(on) { Prefs.saveQuick(if (on) Prefs.quick - r else Prefs.quick + r) } })
-            }
-            item {
-                Section(t("privacy"))
-                SettingRow(t("hideWelcome")) { Toggle(Prefs.hideWelcome, onChange = Prefs::setHideWelcome) }
-                SettingRow(t("hideName")) { Toggle(Prefs.hideName, onChange = Prefs::setHideName) }
-                SettingRow(t("dashboardTxLimit")) { Stepper(Prefs.txLimit, Prefs::setTxLimit) }
-            }
+            } }
+            Section(t("privacy"))
+            SettingRow(t("hideWelcome")) { Toggle(Prefs.hideWelcome, onChange = Prefs::setHideWelcome) }
+            SettingRow(t("hideName")) { Toggle(Prefs.hideName, onChange = Prefs::setHideName) }
+            SettingRow(t("dashboardTxLimit")) { Stepper(Prefs.txLimit, Prefs::setTxLimit) }
         }
     }
 }

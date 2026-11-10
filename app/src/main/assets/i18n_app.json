@@ -269,7 +269,9 @@
 "kt_drive_restore_desc": "Elige un respaldo de Drive (web o app); la sincronización automática sigue igual",
 "kt_drive_none": "No hay respaldos de Parity en tu Drive",
 "kt_drive_full": "Respaldo completo",
-"kt_drive_minimal": "Sincronización"
+"kt_drive_minimal": "Sincronización",
+"kt_search_category": "Buscar categoría",
+"kt_no_results": "Sin resultados"
 },
 "en": {
 "kt_achieved": "Achieved!",
@@ -541,7 +543,9 @@
 "kt_drive_restore_desc": "Pick a Drive backup (web or app); automatic sync stays as is",
 "kt_drive_none": "No Parity backups in your Drive",
 "kt_drive_full": "Full backup",
-"kt_drive_minimal": "Sync"
+"kt_drive_minimal": "Sync",
+"kt_search_category": "Search category",
+"kt_no_results": "No results"
 },
 "pt": {
 "kt_achieved": "Concluída!",
@@ -813,6 +817,8 @@
 "kt_drive_restore_desc": "Escolha um backup do Drive (web ou app); a sincronização automática continua igual",
 "kt_drive_none": "Não há backups do Parity no seu Drive",
 "kt_drive_full": "Backup completo",
-"kt_drive_minimal": "Sincronização"
+"kt_drive_minimal": "Sincronização",
+"kt_search_category": "Buscar categoria",
+"kt_no_results": "Sem resultados"
 }
 }

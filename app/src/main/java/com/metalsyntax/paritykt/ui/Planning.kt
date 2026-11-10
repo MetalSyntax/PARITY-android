@@ -99,10 +99,8 @@ private fun ScheduledEditor(initial: ScheduledPayment?, onDone: () -> Unit) {
         Field(amount, { amount = it }, t("amount"), number = true, suffix = symbol(acc?.currency ?: currency))
         if (d.accounts.isEmpty()) Picker(t("currency"), Currency.entries.map { it to it.name }, currency) { currency = it }
         else Picker(t("wallet"), d.accounts.map { it.id to "${it.name} (${it.currency})" }, accountId) { accountId = it }
-        Caps(t("frequency"))
-        Segmented(Frequency.entries.map { it to it.label }, freq) { freq = it }
-        Caps(t("category"))
-        CategoryStrip(CATEGORIES.filter { it.id != "transfer" && it.income == (type == TxType.INCOME) }, cat) { cat = it }
+        Picker(t("frequency"), Frequency.entries.map { it to it.label }, freq) { freq = it }
+        CategoryPicker(t("category"), CATEGORIES.filter { it.id != "transfer" && it.income == (type == TxType.INCOME) }, cat) { cat = it }
         DateField(t("kt_next_date"), date) { date = it }
         SettingRow(t("kt_auto_post"), t("kt_auto_post_desc")) { Toggle(auto, enabled = acc != null) { auto = it } }
     }
@@ -195,8 +193,7 @@ private fun Budgets(month: YearMonth, creating: Boolean, doneCreating: () -> Uni
             if (initial != null && initial.categoryId != cat) Store.removeBudget(initial, month)
             Store.saveBudget(Budget(cat, v!!, month.toString())); close()
         }, onDelete = initial?.let { { Store.removeBudget(it, month); close() } }) {
-            Caps(t("category"))
-            CategoryStrip(CATEGORIES.filter { !it.income && it.id != "transfer" }, cat) { cat = it }
+            CategoryPicker(t("category"), CATEGORIES.filter { !it.income && it.id != "transfer" }, cat) { cat = it }
             Field(amount, { amount = it }, t("monthlyLimit"), number = true, suffix = "USD")
         }
     }
