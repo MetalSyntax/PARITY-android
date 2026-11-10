@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import kotlinx.coroutines.launch
 import androidx.compose.animation.core.animateFloat
 import com.metalsyntax.paritykt.data.*
@@ -57,6 +58,8 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
     var percent by remember { mutableStateOf("") }
     var focus by remember { mutableStateOf(Focus.AMOUNT) }
     var calc by remember { mutableStateOf(false) }
+    // total y comisiones: oculto hasta tocar su tarjeta (abierto si la transacción ya trae comisión)
+    var showFees by remember { mutableStateOf((initial?.fee ?: 0.0) > 0) }
     var cat by remember { mutableStateOf(initial?.category ?: if (type0 == TxType.INCOME) "income" else "food") }
     var note by remember { mutableStateOf(initial?.note ?: "") }
     var date by remember { mutableStateOf(initial?.date?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() } ?: LocalDate.now()) }
@@ -134,38 +137,43 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
                             style = MaterialTheme.typography.labelMedium, color = if (on) Color.White else Muted)
                     }
                 }
-                // total y comisiones (fijo / %)
-                if (hasFee) Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Surface1).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Caps(t("total"))
-                        Text("${num((value ?: 0.0) + feeTotal)} ${currency.name}", style = MaterialTheme.typography.titleSmall, color = Brand)
-                    }
-                    Column(Modifier.weight(1.4f)) {
-                        Caps(t("commissions"))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FeeBox(t("fixed"), fee, focus == Focus.FEE, Modifier.weight(1f)) { focus = Focus.FEE }
-                            FeeBox("%", percent, focus == Focus.PERCENT, Modifier.weight(1f)) { focus = Focus.PERCENT }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
                 OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), placeholder = { Text(t("notePlaceholder")) }, singleLine = true,
                     shape = RoundedCornerShape(18.dp), colors = fieldColors(Surface1), leadingIcon = { Icon(Icons.Outlined.EditNote, null) })
                 Spacer(Modifier.height(10.dp))
-                // billetera / categoría (o hacia) / fecha
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PickChip(if (type == TxType.TRANSFER) t("from") else t("wallet"), acc.name, Modifier.weight(1f), { AccountTile(acc.icon, 36.dp) }) { pick = "wallet" }
+                // deslizador horizontal como la web: billetera (o desde ⇄ hasta) / categoría / fecha / comisiones, con el nombre completo
+                Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    PickChip(if (type == TxType.TRANSFER) t("from") else t("wallet"), acc.name, { AccountTile(acc.icon, 40.dp) }) { pick = "wallet" }
                     if (type == TxType.TRANSFER) {
                         val to = d.account(toId)
-                        PickChip(t("to"), to?.name ?: "—", Modifier.weight(1f), { AccountTile(to?.icon ?: "wallet", 36.dp) }) { pick = "to" }
+                        RoundIcon(Icons.Outlined.SwapHoriz, t("kt_swap"), {
+                            toId?.let { t0 -> val from = accountId; accountId = t0; toId = from; d.account(t0)?.let { currency = it.currency } }
+                        }, tint = Muted, size = 36.dp)
+                        PickChip(t("to"), to?.name ?: "—", { AccountTile(to?.icon ?: "wallet", 40.dp) }) { pick = "to" }
                     } else {
                         val c = category(cat)
-                        PickChip(t("category"), c.name, Modifier.weight(1f), { Bubble(icon(c.icon), catColor(c), 36.dp) }) { pick = "category" }
+                        PickChip(t("category"), c.name, { Bubble(icon(c.icon), catColor(c), 40.dp) }) { pick = "category" }
                     }
-                    Box(Modifier.size(64.dp).tap(onClick = { pick = "date" }).clip(RoundedCornerShape(18.dp)).background(Surface1), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Outlined.CalendarMonth, t("date"), tint = Brand, modifier = Modifier.size(20.dp))
-                            Text(if (date == LocalDate.now()) t("today") else date.format(DateTimeFormatter.ofPattern("d MMM", ES)), style = MaterialTheme.typography.labelSmall, color = Ink, maxLines = 1)
+                    PickChip(t("date"), if (date == LocalDate.now()) t("today") else date.format(DateTimeFormatter.ofPattern("d MMM", ES)),
+                        { Bubble(Icons.Outlined.CalendarMonth, Brand, 40.dp) }) { pick = "date" }
+                    if (hasFee) PickChip(t("commissions"), if (feeTotal > 0) "${num(feeTotal)} ${currency.name}" else "—",
+                        { Bubble(if (showFees) Icons.Outlined.ExpandLess else Icons.Outlined.Percent, Warning, 40.dp) }, selected = showFees) {
+                        showFees = !showFees; if (!showFees) focus = Focus.AMOUNT
+                    }
+                }
+                // total y comisiones (fijo / %): solo si se abrió con su tarjeta
+                AnimatedVisibility(hasFee && showFees) {
+                    Row(Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Surface1).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Caps(t("total"))
+                            Text("${num((value ?: 0.0) + feeTotal)} ${currency.name}", style = MaterialTheme.typography.titleSmall, color = Brand)
+                        }
+                        Column(Modifier.weight(1.4f)) {
+                            Caps(t("commissions"))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FeeBox(t("fixed"), fee, focus == Focus.FEE, Modifier.weight(1f)) { focus = Focus.FEE }
+                                FeeBox("%", percent, focus == Focus.PERCENT, Modifier.weight(1f)) { focus = Focus.PERCENT }
+                            }
                         }
                     }
                 }
@@ -265,8 +273,10 @@ private fun FeeBox(label: String, value: String, focused: Boolean, modifier: Mod
 }
 
 @Composable
-private fun PickChip(label: String, value: String, modifier: Modifier, leading: @Composable () -> Unit, onClick: () -> Unit) {
-    Row(modifier.height(64.dp).tap(onClick = onClick).clip(RoundedCornerShape(18.dp)).background(Surface1).padding(horizontal = 12.dp),
+private fun PickChip(label: String, value: String, leading: @Composable () -> Unit, selected: Boolean = false, onClick: () -> Unit) {
+    // tarjeta del deslizador: mínimo 150 dp como la web (min-w-[140px]) y hasta 220 dp para que el nombre se lea
+    Row(Modifier.height(64.dp).widthIn(min = 150.dp, max = 220.dp).tap(onClick = onClick).clip(RoundedCornerShape(18.dp))
+        .background(if (selected) Warning.copy(alpha = 0.15f) else Surface1).padding(start = 10.dp, end = 14.dp),
         verticalAlignment = Alignment.CenterVertically) {
         leading(); Spacer(Modifier.width(10.dp))
         Column {
