@@ -329,7 +329,7 @@ fun rememberDriveToken(nav: Nav, run: (String) -> Unit): () -> Unit {
         if (!com.metalsyntax.paritykt.sync.online(ctx)) { nav.snack(t("kt_offline_sync")); return@go }
         pending = true
         Sync.authorize(ctx as Activity, onToken = { tk -> pending = false; run(tk) },
-            onResolution = { pi -> consent.launch(IntentSenderRequest.Builder(pi.intentSender).build()) },
+            onResolution = { pi -> Pin.external = true; consent.launch(IntentSenderRequest.Builder(pi.intentSender).build()) },
             onError = { e -> pending = false; nav.snack(t("kt_drive_unavailable", e)) })
     }
 }
@@ -423,7 +423,7 @@ fun ProfileScreen(nav: Nav) {
             Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Box {
                     Avatar(name.ifBlank { d.profile.name }, 112.dp, Modifier.tap(onClick = {
-                        photo.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        Pin.external = true; photo.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     }), RoundedCornerShape(28.dp), Brand.copy(alpha = 0.15f), Brand, MaterialTheme.typography.displaySmall)
                     Box(Modifier.align(Alignment.BottomEnd).offset(6.dp, 6.dp).size(34.dp).clip(CircleShape).background(Brand), contentAlignment = Alignment.Center) {
                         Icon(Icons.Outlined.PhotoCamera, t("kt_change_photo"), tint = Color.White, modifier = Modifier.size(18.dp))
@@ -500,12 +500,12 @@ fun ProfileScreen(nav: Nav) {
         }
         item {
             SettingsGroup(t("kt_backup_sync"), Icons.Outlined.CloudSync) {
-                SettingRow(t("kt_export_backup"), t("kt_export_backup_desc"), icon = Icons.Outlined.Upload, onClick = { exporter.launch(Sync.backupName()) }) { Chevron() }
-                SettingRow(t("kt_import_backup"), t("kt_import_backup_desc"), icon = Icons.Outlined.Download, onClick = { importer.launch(arrayOf("application/json", "*/*")) }) { Chevron() }
+                SettingRow(t("kt_export_backup"), t("kt_export_backup_desc"), icon = Icons.Outlined.Upload, onClick = { Pin.external = true; exporter.launch(Sync.backupName()) }) { Chevron() }
+                SettingRow(t("kt_import_backup"), t("kt_import_backup_desc"), icon = Icons.Outlined.Download, onClick = { Pin.external = true; importer.launch(arrayOf("application/json", "*/*")) }) { Chevron() }
                 val f = remember(tick) { Sync.folder(ctx) }
                 SettingRow(if (f == null) t("kt_auto_folder") else t("kt_auto_folder_on"),
                     if (f == null) t("kt_auto_folder_desc") else t("kt_auto_folder_last", ago(Sync.lastAuto(ctx))), icon = Icons.Outlined.FolderOpen,
-                    onClick = { folder.launch(null) }) {
+                    onClick = { Pin.external = true; folder.launch(null) }) {
                     if (f != null) Toggle(true) { Sync.setFolder(ctx, null); tick++; nav.snack(t("kt_auto_off")) } else Chevron()
                 }
                 if (Prefs.dev) SettingRow(t("kt_drive_sync"), remember(tick) { Sync.lastDrive(ctx) }?.let { t("kt_drive_last", ago(it)) } ?: t("kt_drive_desc"),

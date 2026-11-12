@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -71,19 +72,23 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     // «Bloquear con PIN al salir»: al volver de segundo plano se pide el PIN
     override fun onStop() {
         super.onStop()
-        if (Pin.enabled && Pin.lockOnExit && !isChangingConfigurations) Pin.locked = true
+        if (Pin.enabled && Pin.lockOnExit && !isChangingConfigurations && !Pin.external) Pin.locked = true
         AutoDrive.onBackground(this, bgScope)
     }
+
+    override fun onResume() { super.onResume(); Pin.external = false }
 
     override fun onDestroy() { super.onDestroy(); pending?.let { if (it.isActive) Sync.autoBackup(this) } }
 }
 
 @Composable
 private fun App(start: Route) {
-    var route by remember { mutableStateOf(start) }
-    var editing by remember { mutableStateOf<Transaction?>(null) }
+    // guardables: si Android cierra la app mientras la cámara está abierta, al volver sigue en el mismo lugar
+    var route by rememberSaveable { mutableStateOf(start) }
+    var editingId by rememberSaveable { mutableStateOf<String?>(null) }
+    val editing = editingId?.let { id -> Store.data.transactions.firstOrNull { it.id == id } }
     var detail by remember { mutableStateOf<Transaction?>(null) } // tocar una transacción abre la vista detallada, no el editor
-    var newType by remember { mutableStateOf<TxType?>(null) }
+    var newType by rememberSaveable { mutableStateOf<TxType?>(null) }
     var settings by remember { mutableStateOf(false) }
     var tutorial by remember { mutableStateOf<Tutorial?>(null) }
     var tStep by remember { mutableIntStateOf(0) }
@@ -124,8 +129,8 @@ private fun App(start: Route) {
             if (tStep + 1 >= tu.steps.size) tutorial = null else { tStep++; tu.steps[tStep]?.let { route = it } }
         }, onClose = { tutorial = null })
     }
-    detail?.let { tx -> TxDetail(tx, onEdit = { detail = null; editing = it }, onClose = { detail = null }) }
-    if (editing != null || newType != null) TxEditor(editing, newType ?: TxType.EXPENSE) { editing = null; newType = null }
+    detail?.let { tx -> TxDetail(tx, onEdit = { detail = null; editingId = it.id }, onClose = { detail = null }) }
+    if (editing != null || newType != null) TxEditor(editing, newType ?: TxType.EXPENSE) { editingId = null; newType = null }
     if (settings) SettingsSheet(nav) { settings = false }
 }
 

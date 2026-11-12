@@ -123,7 +123,7 @@ fun rememberReceiptActions(onDictated: (String) -> Unit, onScanned: (ScannedRece
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var scanning by remember { mutableStateOf(false) }
-    var shot by remember { mutableStateOf<Uri?>(null) }
+    var shot by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<Uri?>(null) }
     fun scan(uri: Uri) {
         scanning = true
         scope.launch {
@@ -137,14 +137,15 @@ fun rememberReceiptActions(onDictated: (String) -> Unit, onScanned: (ScannedRece
         r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let(onDictated)
     }
     return ReceiptActions(
-        camera = { shot = cameraUri(ctx); runCatching { cam.launch(shot!!) }.onFailure { toast(ctx, t("kt_no_camera")) } },
-        gallery = { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+        camera = { shot = cameraUri(ctx); Pin.external = true; runCatching { cam.launch(shot!!) }.onFailure { toast(ctx, t("kt_no_camera")) } },
+        gallery = { Pin.external = true; pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
         dictate = {
             val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE, I18n.locale.toLanguageTag())
                 .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true) // dictado con el paquete de voz del teléfono, sin red
                 .putExtra(RecognizerIntent.EXTRA_PROMPT, t("kt_dictate_prompt"))
+            Pin.external = true
             runCatching { speech.launch(i) }.onFailure { toast(ctx, t("kt_no_dictation")) }
         },
         scanning = scanning,
@@ -201,24 +202,66 @@ private fun Line(label: String, value: String, color: Color = Ink) = Row {
     Caps(label, Modifier.weight(1f)); Text(value, style = MaterialTheme.typography.titleSmall, color = color)
 }
 
-/** Revisión tras leer la factura: imagen, comercio, ítems y total; «Usar» rellena el monto, la nota, la moneda y la fecha. */
+/**
+ * Revisión tras leer la factura: todo editable (descripción y monto de cada ítem, subtotal, IVA y total), se pueden quitar o
+ * agregar ítems. «Usar» rellena el monto, la nota, la moneda y la fecha.
+ */
 @Composable
 fun ReceiptReview(scan: ScannedReceipt, currency: Currency, onRemove: (() -> Unit)? = null, onUse: (InvoiceData) -> Unit, onDismiss: () -> Unit) {
-    var inv by remember { mutableStateOf(scan.invoice) }
+    val inv0 = scan.invoice
+    fun txt(v: Double?) = v?.let { String.format(java.util.Locale.ROOT, "%.2f", it) } ?: ""
+    val descs = remember { inv0.items.map { it.description }.toMutableStateList() }
+    val amts = remember { inv0.items.map { txt(it.total) }.toMutableStateList() }
+    val qtys = remember { inv0.items.map { it.quantity }.toMutableStateList() }
+    var subtotal by remember { mutableStateOf(txt(inv0.subtotal)) }
+    var tax by remember { mutableStateOf(txt(inv0.tax)) }
+    var total by remember { mutableStateOf(txt(inv0.total)) }
+    var merchant by remember { mutableStateOf(inv0.merchant ?: "") }
+    val c = inv0.currency ?: currency
+    val sum = amts.sumOf { InvoiceParser.amount(it) ?: 0.0 }
     val img = remember(scan) { ReceiptOcr.decode(scan.dataUrl) }
-    TitledSheet(inv.merchant ?: t("receipt"), inv.invoiceDate?.let(::shortDate) ?: t("kt_items_found", inv.items.size), onDismiss) {
+    TitledSheet(inv0.merchant ?: t("receipt"), inv0.invoiceDate?.let(::shortDate) ?: t("kt_items_found", descs.size), onDismiss) {
         Spacer(Modifier.height(12.dp))
-        img?.let { Image(it, t("receipt"), Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(18.dp)).background(Color.Black), contentScale = ContentScale.Crop) }
+        img?.let { Image(it, t("receipt"), Modifier.fillMaxWidth().height(140.dp).clip(RoundedCornerShape(18.dp)).background(Color.Black), contentScale = ContentScale.Crop) }
         Spacer(Modifier.height(12.dp))
-        InvoiceLines(inv, currency) { i ->
-            val items = inv.items.toMutableList().also { it.removeAt(i) }
-            // si el total salió de la suma de ítems, se recalcula
-            val fromSum = inv.total == inv.items.sumOf { it.total }
-            inv = inv.copy(items = items, total = if (fromSum) items.sumOf { it.total } else inv.total)
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Bg).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Field(merchant, { merchant = it }, t("kt_merchant"), container = Surface1)
+            if (descs.isEmpty()) Text(t("kt_no_items"), style = MaterialTheme.typography.bodySmall, color = Muted)
+            descs.indices.forEach { i ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Field(descs[i], { descs[i] = it }, t("kt_item"), modifier = Modifier.weight(1f), container = Surface1)
+                    Spacer(Modifier.width(6.dp))
+                    Field(amts[i], { amts[i] = it.filter { ch -> ch.isDigit() || ch == '.' || ch == ',' } }, symbol(c), number = true,
+                        modifier = Modifier.width(112.dp), container = Surface1)
+                    IconButton({ descs.removeAt(i); amts.removeAt(i); qtys.removeAt(i) }, Modifier.size(32.dp)) {
+                        Icon(Icons.Outlined.Close, t("delete"), tint = Muted, modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+            LinkText("+ " + t("kt_add_item")) { descs.add(""); amts.add(""); qtys.add(null) }
+            HorizontalDivider(color = Glass)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Field(subtotal, { subtotal = it }, t("kt_subtotal"), number = true, modifier = Modifier.weight(1f), container = Surface1)
+                Field(tax, { tax = it }, t("kt_tax"), number = true, modifier = Modifier.weight(1f), container = Surface1)
+            }
+            Field(total, { total = it }, "${t("total")} (${symbol(c)})", number = true, container = Surface1)
+            // la suma de ítems no coincide con el total: un toque la usa como total
+            // los ítems se comparan con el subtotal (antes de IVA) si existe; si no, con el total
+            val sub = InvoiceParser.amount(subtotal)
+            if (descs.isNotEmpty() && kotlin.math.abs(sum - (sub ?: InvoiceParser.amount(total) ?: 0.0)) > 0.009)
+                LinkText(t("kt_use_sum", money(sum, c)), Warning) {
+                    if (sub != null) { subtotal = txt(sum); total = txt(sum + (InvoiceParser.amount(tax) ?: 0.0)) } else total = txt(sum)
+                }
         }
-        if (inv.total == null) Text(t("kt_no_total"), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = Warning)
         Spacer(Modifier.height(14.dp))
-        BrandButton(t("kt_use_receipt"), Modifier.fillMaxWidth().height(52.dp), Icons.Outlined.Check) { onUse(inv) }
+        BrandButton(t("kt_use_receipt"), Modifier.fillMaxWidth().height(52.dp), Icons.Outlined.Check) {
+            val items = descs.indices.mapNotNull { i ->
+                val v = InvoiceParser.amount(amts[i]) ?: return@mapNotNull null
+                val q = qtys[i]
+                InvoiceItem(descs[i].trim().ifBlank { t("kt_item") }, q, q?.takeIf { it > 0 }?.let { v / it }, v)
+            }
+            onUse(inv0.copy(merchant = merchant.trim().ifBlank { null }, items = items, subtotal = InvoiceParser.amount(subtotal), tax = InvoiceParser.amount(tax), total = InvoiceParser.amount(total) ?: items.sumOf { it.total }.takeIf { items.isNotEmpty() }))
+        }
         onRemove?.let { LinkText(t("kt_remove_receipt"), Expense, Modifier.fillMaxWidth().padding(top = 14.dp), onClick = it) }
     }
 }

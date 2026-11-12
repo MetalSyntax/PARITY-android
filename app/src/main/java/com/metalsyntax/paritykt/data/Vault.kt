@@ -88,6 +88,8 @@ object Pin {
     /** Desbloquear también con huella/rostro (el PIN sigue como respaldo). */
     var biometric by mutableStateOf(false); private set
     var locked by mutableStateOf(false)
+    /** La app abrió otra (cámara, galería, dictado, archivos): al volver no se bloquea ni se pierde lo que se estaba editando. */
+    @Volatile var external = false
     var fails by mutableIntStateOf(0); private set
     private var until = 0L
 

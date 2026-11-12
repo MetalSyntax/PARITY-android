@@ -35,8 +35,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import org.json.JSONObject
-
-private enum class Focus { AMOUNT, FEE, PERCENT }
+import androidx.compose.runtime.saveable.rememberSaveable
 
 /**
  * Agregar / editar transacción a pantalla completa, como AddTransaction.tsx de la web: tipo, monto grande con teclado propio
@@ -50,20 +49,17 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
         Confirm(t("kt_first_wallet"), t("kt_first_wallet_desc"), t("done"), onDismiss = onDone, onConfirm = onDone)
         return
     }
-    var type by remember { mutableStateOf(initial?.type ?: type0) }
-    var accountId by remember { mutableStateOf(initial?.accountId ?: d.accounts.first().id) }
-    var toId by remember { mutableStateOf(initial?.toAccountId ?: d.accounts.getOrNull(1)?.id) }
-    var currency by remember { mutableStateOf(initial?.originalCurrency ?: d.account(accountId)!!.currency) }
-    var amount by remember { mutableStateOf(initial?.amount?.let { trimNum(it) } ?: "") }
-    var fee by remember { mutableStateOf(initial?.fee?.takeIf { it > 0 }?.let { trimNum(it) } ?: "") }
-    var percent by remember { mutableStateOf("") }
-    var focus by remember { mutableStateOf(Focus.AMOUNT) }
-    var calc by remember { mutableStateOf(false) }
-    // total y comisiones: oculto hasta tocar su tarjeta (abierto si la transacción ya trae comisión)
-    var showFees by remember { mutableStateOf((initial?.fee ?: 0.0) > 0) }
-    var cat by remember { mutableStateOf(initial?.category ?: if (type0 == TxType.INCOME) "income" else "food") }
-    var note by remember { mutableStateOf(initial?.note ?: "") }
-    var date by remember { mutableStateOf(initial?.date?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() } ?: LocalDate.now()) }
+    var type by rememberSaveable { mutableStateOf(initial?.type ?: type0) }
+    var accountId by rememberSaveable { mutableStateOf(initial?.accountId ?: d.accounts.first().id) }
+    var toId by rememberSaveable { mutableStateOf(initial?.toAccountId ?: d.accounts.getOrNull(1)?.id) }
+    var currency by rememberSaveable { mutableStateOf(initial?.originalCurrency ?: d.account(accountId)!!.currency) }
+    var amount by rememberSaveable { mutableStateOf(initial?.amount?.let { trimNum(it) } ?: "") }
+    var fee by rememberSaveable { mutableStateOf(initial?.fee?.takeIf { it > 0 }?.let { trimNum(it) } ?: "") }
+    var percent by rememberSaveable { mutableStateOf("") }
+    var calc by rememberSaveable { mutableStateOf(false) }
+    var cat by rememberSaveable { mutableStateOf(initial?.category ?: if (type0 == TxType.INCOME) "income" else "food") }
+    var note by rememberSaveable { mutableStateOf(initial?.note ?: "") }
+    var date by rememberSaveable { mutableStateOf(initial?.date?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() } ?: LocalDate.now()) }
     var pick by remember { mutableStateOf<String?>(null) } // "wallet" | "to" | "category" | "date"
     var confirmDelete by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -88,7 +84,7 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
     fun key(k: String) {
         fun edit(s: String) = when (k) { "⌫" -> s.dropLast(1); "." -> if (s.takeLastWhile { it.isDigit() || it == '.' }.contains('.')) s else (if (s.isEmpty()) "0." else "$s.")
             else -> if (k in "+−×÷" && (s.isEmpty() || s.last() in "+−×÷.")) s else s + k }
-        when (focus) { Focus.AMOUNT -> amount = edit(amount); Focus.FEE -> fee = edit(fee); Focus.PERCENT -> percent = edit(percent) }
+        amount = edit(amount)
     }
     fun save() {
         val v = value ?: return
@@ -135,11 +131,11 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
             Box(Modifier.weight(1f)) {
             Column(Modifier.verticalScroll(sc)) {
                 // monto grande
-                Column(Modifier.fillMaxWidth().padding(top = 14.dp).tap(onClick = { focus = Focus.AMOUNT }), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(if (currency == Currency.VES) "Bs" else symbol(currency), style = MaterialTheme.typography.headlineMedium, color = Muted)
                         Spacer(Modifier.width(14.dp))
-                        AutoText(amount.ifEmpty { "0" }, MaterialTheme.typography.displayMedium, if (focus == Focus.AMOUNT) typeColor else Ink)
+                        AutoText(amount.ifEmpty { "0" }, MaterialTheme.typography.displayMedium, typeColor)
                     }
                     val usd = value?.let { Store.usd(it, currency) } ?: 0.0
                     Text(if (Calc.isExpression(amount)) "= ${value?.let(::num) ?: "…"}" else if (currency == Currency.VES) "≈ ${money(usd)}" else "≈ ${money(inDisplay(usd, Currency.VES), Currency.VES)}",
@@ -197,25 +193,7 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
                         }) { review = ScannedReceipt(receipt!!, invoice ?: InvoiceData()) }
                     }
                     if (hasFee) PickChip(t("commissions"), if (feeTotal > 0) "${num(feeTotal)} ${currency.name}" else "—",
-                        { Bubble(if (showFees) Icons.Outlined.ExpandLess else Icons.Outlined.Percent, Warning, 40.dp) }, selected = showFees) {
-                        showFees = !showFees; if (!showFees) focus = Focus.AMOUNT
-                    }
-                }
-                // total y comisiones (fijo / %): solo si se abrió con su tarjeta
-                AnimatedVisibility(hasFee && showFees) {
-                    Row(Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Surface1).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Caps(t("total"))
-                            Text("${num((value ?: 0.0) + feeTotal)} ${currency.name}", style = MaterialTheme.typography.titleSmall, color = Brand)
-                        }
-                        Column(Modifier.weight(1.4f)) {
-                            Caps(t("commissions"))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FeeBox(t("fixed"), fee, focus == Focus.FEE, Modifier.weight(1f)) { focus = Focus.FEE }
-                                FeeBox("%", percent, focus == Focus.PERCENT, Modifier.weight(1f)) { focus = Focus.PERCENT }
-                            }
-                        }
-                    }
+                        { Bubble(Icons.Outlined.Percent, Warning, 40.dp) }, selected = feeTotal > 0) { pick = "fee" }
                 }
             }
             // aviso de que hay más campos abajo (nota, billetera, categoría, fecha) cuando el teclado los tapa
@@ -279,6 +257,25 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
                     }
                 }
             }
+            // comisiones en ventana emergente como billetera / categoría / fecha
+            "fee" -> TitledSheet(t("commissions"), onDismiss = { pick = null }) {
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Field(fee, { fee = it.filter { c -> c.isDigit() || c == '.' || c == ',' } }, t("fixed"), number = true, modifier = Modifier.weight(1f), suffix = currency.name)
+                    Field(percent, { percent = it.filter { c -> c.isDigit() || c == '.' || c == ',' } }, "%", number = true, modifier = Modifier.weight(1f), suffix = "%")
+                }
+                Row(Modifier.fillMaxWidth().padding(top = 14.dp).clip(RoundedCornerShape(18.dp)).background(Bg).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Caps(t("commissions")); Text("${num(feeTotal)} ${currency.name}", style = MaterialTheme.typography.titleMedium, color = Warning)
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Caps(t("total")); Text("${num((value ?: 0.0) + feeTotal)} ${currency.name}", style = MaterialTheme.typography.titleMedium, color = Brand)
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                BrandButton(t("done"), Modifier.fillMaxWidth().height(52.dp), Icons.Outlined.Check) { pick = null }
+                if (feeTotal > 0) LinkText(t("kt_clear"), Muted, Modifier.padding(top = 10.dp)) { fee = ""; percent = "" }
+            }
             "date" -> {
                 val st = rememberDatePickerState(initialSelectedDateMillis = date.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli())
                 DatePickerDialog(onDismissRequest = { pick = null },
@@ -290,7 +287,7 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
             ReceiptReview(sc, currency, onRemove = if (sc.dataUrl == receipt) { { receipt = null; invoice = null; review = null } } else null, onUse = { inv ->
                 receipt = sc.dataUrl; invoice = inv; review = null
                 inv.currency?.let { currency = it }
-                inv.total?.takeIf { it > 0 }?.let { amount = trimNum(Math.round(it * 100) / 100.0); focus = Focus.AMOUNT }
+                inv.total?.takeIf { it > 0 }?.let { amount = trimNum(Math.round(it * 100) / 100.0) }
                 if (note.isBlank()) inv.merchant?.let { note = it }
                 inv.invoiceDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }?.takeIf { !it.isAfter(LocalDate.now()) }?.let { date = it }
                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
@@ -311,14 +308,6 @@ private fun Key(k: String, modifier: Modifier, small: Boolean = false, color: Co
     Box(modifier.height(if (small) 44.dp else 58.dp).tap(onClick = onClick).clip(RoundedCornerShape(18.dp)).background(Surface1), contentAlignment = Alignment.Center) {
         if (k == "⌫") Icon(Icons.Outlined.Backspace, t("kt_erase"), tint = Ink)
         else Text(k, style = if (small) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall, color = color)
-    }
-}
-
-@Composable
-private fun FeeBox(label: String, value: String, focused: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    Column(modifier.tap(onClick = onClick).clip(RoundedCornerShape(12.dp)).background(if (focused) Brand.copy(alpha = 0.18f) else Bg).padding(horizontal = 10.dp, vertical = 6.dp)) {
-        Text(label.uppercase(ES), style = MaterialTheme.typography.labelSmall, color = Muted)
-        Text(value.ifEmpty { "0" }, style = MaterialTheme.typography.titleSmall, color = if (focused) Brand else Ink, maxLines = 1)
     }
 }
 
