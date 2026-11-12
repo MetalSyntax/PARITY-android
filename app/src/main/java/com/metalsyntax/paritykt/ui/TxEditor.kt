@@ -34,6 +34,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import org.json.JSONObject
 
 private enum class Focus { AMOUNT, FEE, PERCENT }
 
@@ -66,6 +67,16 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
     var pick by remember { mutableStateOf<String?>(null) } // "wallet" | "to" | "category" | "date"
     var confirmDelete by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    // factura digitalizada: imagen (`receipt`, data URL como la web) + datos leídos por el OCR (`invoiceData`)
+    var receipt by remember { mutableStateOf(initial?.extra?.optString("receipt")?.takeIf { it.isNotBlank() }) }
+    var invoice by remember { mutableStateOf(InvoiceData.from(initial?.extra?.optJSONObject("invoiceData"))) }
+    var review by remember { mutableStateOf<ScannedReceipt?>(null) }
+    var attachMenu by remember { mutableStateOf(false) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val actions = rememberReceiptActions(onDictated = { s -> note = (note.trim() + " " + s).trim() }) { r ->
+        if (r == null) toast(ctx, t("kt_scan_failed")) else review = r
+    }
 
     val value = if (Calc.isExpression(amount)) Calc.eval(amount) else parseAmount(amount)
     val feeTotal = (parseAmount(fee) ?: 0.0) + (value ?: 0.0) * (parseAmount(percent) ?: 0.0) / 100
@@ -86,7 +97,12 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
             category = cat, accountId = accountId, date = time)).copy(
             amount = v, originalCurrency = currency, type = type, accountId = accountId, date = time, note = note.trim(),
             category = if (type == TxType.TRANSFER) "transfer" else cat, toAccountId = if (type == TxType.TRANSFER) toId else null,
-            fee = if (hasFee && feeTotal > 0) feeTotal else null))
+            fee = if (hasFee && feeTotal > 0) feeTotal else null,
+            extra = JSONObject().also { r -> initial?.extra?.let { e -> e.keys().forEach { k -> r.put(k, e.get(k)) } } }.apply {
+                if (receipt != null) put("receipt", receipt) else remove("receipt")
+                invoice?.let { put("invoiceData", it.toJson()) } ?: remove("invoiceData")
+            }))
+        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
         onDone()
     }
 
@@ -138,7 +154,22 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
                     }
                 }
                 OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), placeholder = { Text(t("notePlaceholder")) }, singleLine = true,
-                    shape = RoundedCornerShape(18.dp), colors = fieldColors(Surface1), leadingIcon = { Icon(Icons.Outlined.EditNote, null) })
+                    shape = RoundedCornerShape(18.dp), colors = fieldColors(Surface1), leadingIcon = { Icon(Icons.Outlined.EditNote, null) },
+                    trailingIcon = {
+                        Row {
+                            IconButton(actions.dictate) { Icon(Icons.Outlined.Mic, t("kt_dictate"), tint = Brand) }
+                            Box {
+                                IconButton({ attachMenu = true }) { Icon(Icons.Outlined.PhotoCamera, t("kt_scan_receipt"), tint = Brand) }
+                                DropdownMenu(attachMenu, { attachMenu = false }, Modifier.background(Surface2)) {
+                                    DropdownMenuItem({ Text(t("kt_take_photo"), color = Ink) }, { attachMenu = false; actions.camera() },
+                                        leadingIcon = { Icon(Icons.Outlined.PhotoCamera, null, tint = Brand) })
+                                    DropdownMenuItem({ Text(t("kt_from_gallery"), color = Ink) }, { attachMenu = false; actions.gallery() },
+                                        leadingIcon = { Icon(Icons.Outlined.PhotoLibrary, null, tint = Brand) })
+                                }
+                            }
+                        }
+                    })
+                AnimatedVisibility(actions.scanning) { Box(Modifier.padding(top = 10.dp)) { ScanningBanner() } }
                 Spacer(Modifier.height(10.dp))
                 // deslizador horizontal como la web: billetera (o desde ⇄ hasta) / categoría / fecha / comisiones, con el nombre completo
                 Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -156,6 +187,15 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
                     }
                     PickChip(t("date"), if (date == LocalDate.now()) t("today") else date.format(DateTimeFormatter.ofPattern("d MMM", ES)),
                         { Bubble(Icons.Outlined.CalendarMonth, Brand, 40.dp) }) { pick = "date" }
+                    if (receipt != null) {
+                        val thumb = remember(receipt) { ReceiptOcr.decode(receipt) }
+                        PickChip(t("receipt"), invoice?.let { t("kt_items_found", it.items.size) } ?: t("kt_attached"), {
+                            Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(Bg), contentAlignment = Alignment.Center) {
+                                thumb?.let { androidx.compose.foundation.Image(it, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop) }
+                                    ?: Icon(Icons.Outlined.Receipt, null, tint = Brand)
+                            }
+                        }) { review = ScannedReceipt(receipt!!, invoice ?: InvoiceData()) }
+                    }
                     if (hasFee) PickChip(t("commissions"), if (feeTotal > 0) "${num(feeTotal)} ${currency.name}" else "—",
                         { Bubble(if (showFees) Icons.Outlined.ExpandLess else Icons.Outlined.Percent, Warning, 40.dp) }, selected = showFees) {
                         showFees = !showFees; if (!showFees) focus = Focus.AMOUNT
@@ -245,6 +285,16 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
                     confirmButton = { TextButton(onClick = { st.selectedDateMillis?.let { date = Instant.ofEpochMilli(it).atZone(ZoneId.of("UTC")).toLocalDate() }; pick = null }) { Text(t("done"), color = Brand) } },
                     dismissButton = { TextButton(onClick = { pick = null }) { Text(t("cancel"), color = Muted) } }) { DatePicker(st) }
             }
+        }
+        review?.let { sc ->
+            ReceiptReview(sc, currency, onRemove = if (sc.dataUrl == receipt) { { receipt = null; invoice = null; review = null } } else null, onUse = { inv ->
+                receipt = sc.dataUrl; invoice = inv; review = null
+                inv.currency?.let { currency = it }
+                inv.total?.takeIf { it > 0 }?.let { amount = trimNum(Math.round(it * 100) / 100.0); focus = Focus.AMOUNT }
+                if (note.isBlank()) inv.merchant?.let { note = it }
+                inv.invoiceDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }?.takeIf { !it.isAfter(LocalDate.now()) }?.let { date = it }
+                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+            }) { review = null }
         }
         if (confirmDelete && initial != null) Confirm(t("kt_delete_q"), t("kt_cannot_undo"), t("delete"), danger = true, onDismiss = { confirmDelete = false }) {
             Store.deleteTx(initial.id); confirmDelete = false; onDone()

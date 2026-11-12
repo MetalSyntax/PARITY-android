@@ -70,7 +70,8 @@ object Prefs {
         // widgets nuevos que no estaban en el orden guardado van al final
         widgets = list("widgets", Widget.entries.toList()).let { it + (Widget.entries - it.toSet()) }
         hidden = list("hidden", hidden.toList()).toSet()
-        quick = list("quick", QUICK_DEFAULT)
+        // antes se podían desmarcar; ahora las casillas solo se cambian: mínimo 4 para que la fila no quede vacía
+        quick = list("quick", QUICK_DEFAULT).let { q -> if (q.size >= 4) q else q + (QUICK_DEFAULT - q.toSet()).take(4 - q.size) }
         hideWelcome = sp.getBoolean("hideWelcome", false); hideName = sp.getBoolean("hideName", false)
         txLimit = sp.getInt("txLimit", 6); dev = sp.getBoolean("dev", false)
         onboarded = sp.getBoolean("onboarded", sp.contains("theme") || sp.contains("mode")) // instalaciones previas no repiten el onboarding

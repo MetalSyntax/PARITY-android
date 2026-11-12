@@ -11,8 +11,8 @@ android {
         applicationId = "com.metalsyntax.paritykt" // distinto de la Parity actual: conviven en el teléfono
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "0.4.1"
+        versionCode = 6
+        versionName = "0.5.0"
     }
 
     buildTypes {
@@ -40,6 +40,8 @@ dependencies {
     // Google Drive (alcance drive.file, mismo que la web): token OAuth con la cuenta del teléfono
     implementation("com.google.android.gms:play-services-auth:21.0.0")
     implementation("androidx.biometric:biometric:1.1.0") // huella / rostro, como YiSecure
+    // OCR de facturas 100 % en el teléfono: modelo neuronal de ML Kit empaquetado en el APK (no usa Google Play ni internet)
+    implementation("com.google.mlkit:text-recognition:16.0.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20231013") // org.json real (el de android.jar es un stub en pruebas locales)
 }

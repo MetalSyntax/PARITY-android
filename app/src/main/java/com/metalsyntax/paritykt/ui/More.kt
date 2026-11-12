@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -324,7 +325,8 @@ fun rememberDriveToken(nav: Nav, run: (String) -> Unit): () -> Unit {
         if (pending) Sync.tokenFrom(ctx as Activity, r.data).onSuccess { run(it) }.onFailure { nav.snack("Drive: ${it.message}") }
         pending = false
     }
-    return {
+    return go@{
+        if (!com.metalsyntax.paritykt.sync.online(ctx)) { nav.snack(t("kt_offline_sync")); return@go }
         pending = true
         Sync.authorize(ctx as Activity, onToken = { tk -> pending = false; run(tk) },
             onResolution = { pi -> consent.launch(IntentSenderRequest.Builder(pi.intentSender).build()) },
@@ -334,12 +336,25 @@ fun rememberDriveToken(nav: Nav, run: (String) -> Unit): () -> Unit {
 
 // ================================================================================================ Perfil
 
+/** Campos opcionales del perfil (claves en profile.extra). */
+val PROFILE_FIELDS = listOf("email", "phone", "birthDate", "location", "occupation")
+
 @Composable
 fun ProfileScreen(nav: Nav) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val d = Store.data
     var name by remember { mutableStateOf(d.profile.name) }
+    // datos opcionales del perfil (en profile.extra, se conservan al sincronizar con la web)
+    val fields = PROFILE_FIELDS.associateWith { k -> remember { mutableStateOf(d.profile.extra.optString(k)) } }
+    var more by remember { mutableStateOf(fields.values.any { it.value.isNotBlank() }) }
+    var customize by remember { mutableStateOf(false) }
+    var tutorials by remember { mutableStateOf(false) }
+    val photo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        scope.launch { if (!withContext(Dispatchers.IO) { runCatching { AvatarStore.save(ctx, uri) }.getOrDefault(false) }) nav.snack(t("kt_photo_failed")) }
+    }
+    val dirty = name.trim() != d.profile.name || fields.any { (k, v) -> v.value.trim() != d.profile.extra.optString(k) }
     var importAsk by remember { mutableStateOf<Pair<AppData, Boolean>?>(null) }
     var busy by remember { mutableStateOf(false) }
     var tick by remember { mutableIntStateOf(0) } // refresca «última copia»
@@ -397,20 +412,44 @@ fun ProfileScreen(nav: Nav) {
         item {
             Box(Modifier.offset(x = (-16).dp).fillParentMaxWidth()) {
                 ViewHeader(t("profile"), t("profileSubtitle"), nav.back) {
-                    BrandButton(t("saveProfile"), icon = Icons.Outlined.Save, enabled = name.trim() != d.profile.name && name.isNotBlank()) {
-                        Store.saveProfile(d.profile.copy(name = name.trim())); nav.snack(t("kt_saved"))
+                    BrandButton(t("saveProfile"), icon = Icons.Outlined.Save, enabled = dirty && name.isNotBlank()) {
+                        val extra = JSONObject(d.profile.extra.toString())
+                        fields.forEach { (k, v) -> if (v.value.isBlank()) extra.remove(k) else extra.put(k, v.value.trim()) }
+                        Store.saveProfile(d.profile.copy(name = name.trim(), extra = extra)); nav.snack(t("kt_saved"))
                     }
                 }
             }
-            Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.size(112.dp).clip(RoundedCornerShape(28.dp)).background(Brand.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
-                    Text(initials(name.ifBlank { d.profile.name }), style = MaterialTheme.typography.displaySmall, color = Brand)
+            // foto: tocar para elegir de la galería; insignia de cámara como pista
+            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box {
+                    Avatar(name.ifBlank { d.profile.name }, 112.dp, Modifier.tap(onClick = {
+                        photo.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    }), RoundedCornerShape(28.dp), Brand.copy(alpha = 0.15f), Brand, MaterialTheme.typography.displaySmall)
+                    Box(Modifier.align(Alignment.BottomEnd).offset(6.dp, 6.dp).size(34.dp).clip(CircleShape).background(Brand), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.PhotoCamera, t("kt_change_photo"), tint = Color.White, modifier = Modifier.size(18.dp))
+                    }
                 }
+                if (remember(AvatarStore.version) { AvatarStore.file(ctx).exists() })
+                    LinkText(t("kt_remove_photo"), Muted, Modifier.padding(top = 10.dp)) { AvatarStore.clear(ctx) }
             }
         }
         item {
             SettingsGroup(t("username"), Icons.Outlined.Person) {
                 Field(name, { name = it }, t("name"))
+                // más datos solo si la persona quiere: desplegable con flecha que gira
+                val arrow by androidx.compose.animation.core.animateFloatAsState(if (more) 180f else 0f, label = "more")
+                Row(Modifier.fillMaxWidth().padding(top = 10.dp).tap(onClick = { more = !more }).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(if (more) Icons.Outlined.RemoveCircleOutline else Icons.Outlined.AddCircleOutline, null, tint = Brand, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (more) t("kt_less_info") else t("kt_more_info"), Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = Brand)
+                    Icon(Icons.Outlined.ExpandMore, null, tint = Muted, modifier = Modifier.graphicsLayer { rotationZ = arrow })
+                }
+                AnimatedVisibility(more) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PROFILE_FIELDS.forEach { k -> Field(fields.getValue(k).value, { fields.getValue(k).value = it }, t("kt_pf_$k")) }
+                        Text(t("kt_pf_note"), style = MaterialTheme.typography.bodySmall, color = Muted)
+                    }
+                }
                 Spacer(Modifier.height(18.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Outlined.Language, null, tint = Brand, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(8.dp)); Caps(t("language"))
@@ -421,6 +460,13 @@ fun ProfileScreen(nav: Nav) {
                     Text(v.first, fontSize = 22.sp); Spacer(Modifier.height(4.dp))
                     Text(v.second, style = MaterialTheme.typography.labelSmall, color = if (on) Color.White else Ink, maxLines = 1)
                 }
+            }
+        }
+        item {
+            SettingsGroup(t("kt_app"), Icons.Outlined.Tune) {
+                SettingRow(t("kt_customize_dashboard"), t("kt_customize_desc"), icon = Icons.Outlined.Widgets, onClick = { customize = true }) { Chevron() }
+                SettingRow(t("settings"), t("kt_settings_desc"), icon = Icons.Outlined.Settings, onClick = nav.settings) { Chevron() }
+                SettingRow(t("btn_tutorials"), t("kt_tut_count", TUTORIALS.size), icon = Icons.Outlined.School, onClick = { tutorials = true }) { Chevron() }
             }
         }
         item {
@@ -500,10 +546,13 @@ fun ProfileScreen(nav: Nav) {
     }
 
     legal?.let { LegalSheet(it) { legal = null } }
+    if (customize) CustomizerSheet { customize = false }
+    if (tutorials) TutorialsSheet({ tutorials = false; nav.tutorial(it) }) { tutorials = false }
     if (reset) Confirm(t("resetAppData"), t("resetAppDataConfirm"), t("delete"), danger = true, onDismiss = { reset = false }) {
         reset = false
         // la copia automática no debe pisar el respaldo de la carpeta con datos vacíos
         Sync.setFolder(ctx, null)
+        AvatarStore.clear(ctx)
         Store.replaceAll(AppData(profile = UserProfile(language = d.profile.language)))
         Reminders.schedule(ctx)
         name = ""; nav.snack(t("kt_data_deleted")); nav.back()

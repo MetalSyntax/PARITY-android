@@ -1,6 +1,7 @@
 package com.metalsyntax.paritykt.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -73,11 +74,9 @@ fun pct(v: Double, total: Double) = if (total > 0) "${"%.0f".format(v / total * 
 @Composable
 fun HomeScreen(nav: Nav) {
     val d = Store.data
-    var customize by remember { mutableStateOf(false) }
-    var tutorials by remember { mutableStateOf(false) }
     val month = d.monthTx()
     LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp)) {
-        item { HomeHeader(d, nav, onWidgets = { customize = true }, onTutorials = { tutorials = true }) }
+        item { HomeHeader(d, nav) }
         Prefs.widgets.filter { it !in Prefs.hidden }.forEach { w ->
             when (w) {
                 Widget.QUICK -> item(key = w) { QuickActions(nav) }
@@ -143,34 +142,59 @@ fun HomeScreen(nav: Nav) {
             }
         }
     }
-    if (customize) CustomizerSheet { customize = false }
-    if (tutorials) TutorialsSheet({ tutorials = false; nav.tutorial(it) }) { tutorials = false }
+}
+
+/** Actualizar tasas (botón de las tasas del Inicio y Ajustes); sin red avisa con calma y deja todo como está. */
+class RateRefresh(val busy: Boolean, val run: () -> Unit)
+
+@Composable
+fun rememberRateRefresh(nav: Nav): RateRefresh {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    var busy by remember { mutableStateOf(false) }
+    return RateRefresh(busy) {
+        if (busy) Unit
+        else if (!com.metalsyntax.paritykt.sync.online(ctx)) nav.snack(t("kt_offline_rates"))
+        else {
+            busy = true
+            scope.launch {
+                val r = withContext(Dispatchers.IO) { runCatching { Store.refreshRates() } }
+                busy = false
+                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                nav.snack(r.fold({ "BCV: ${num(it.bcvUsd)} Bs/$" }, { t("kt_offline_rates") }))
+            }
+        }
+    }
 }
 
 @Composable
-private fun HomeHeader(d: AppData, nav: Nav, onWidgets: () -> Unit, onTutorials: () -> Unit) {
-    val scope = rememberCoroutineScope()
-    var busy by remember { mutableStateOf(false) }
+private fun HomeHeader(d: AppData, nav: Nav) {
     var parallel by remember { mutableStateOf(false) }
-    val drive = rememberDriveSync(nav)
+    val refresh = rememberRateRefresh(nav)
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(52.dp).tap(onClick = { nav.go(Route.PROFILE) }).clip(CircleShape).background(Surface1), contentAlignment = Alignment.Center) {
-            Text(initials(d.profile.name), color = Ink, style = MaterialTheme.typography.titleMedium)
-        }
+        Avatar(d.profile.name, 52.dp, Modifier.tap(onClick = { nav.go(Route.PROFILE) }))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             if (Prefs.dev) Pill(t("devModeActive"), Warning)
             if (!Prefs.hideWelcome) Text(t("welcome_back").uppercase(ES), style = MaterialTheme.typography.labelSmall, color = Muted.copy(alpha = 0.75f), letterSpacing = 1.5.sp, maxLines = 2)
             if (!Prefs.hideName) Text(d.profile.name.ifBlank { "Parity" }.substringBefore(' '), style = MaterialTheme.typography.titleMedium, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        // tasas siempre visibles; en modo Dev, al tocar, muestra la paralela
+        // las tasas son el botón de actualizar; en modo Dev, mantener pulsado muestra la paralela
+        val rot = remember { Animatable(0f) }
+        LaunchedEffect(refresh.busy) { while (refresh.busy) rot.animateTo(rot.value + 360f, tween(700)); rot.snapTo(0f) }
         Box {
-            Column(Modifier.tap(onClick = { if (Prefs.dev) parallel = true else nav.settings() }).clip(RoundedCornerShape(16.dp)).background(Surface1)
-                .padding(horizontal = 12.dp, vertical = 8.dp), horizontalAlignment = Alignment.End) {
-                if (d.rates.usd > 0) {
-                    Text("USD: ${num(d.rates.usd)} Bs", color = RateUsd, style = MaterialTheme.typography.labelMedium)
-                    if (d.rates.eur > 0) Text("EUR: ${num(d.rates.eur)} Bs", color = RateEur, style = MaterialTheme.typography.labelMedium)
-                } else Text(t("kt_no_rate"), color = Muted, style = MaterialTheme.typography.labelMedium)
+            Row(Modifier.tap(onLongClick = if (Prefs.dev) { { parallel = true } } else null, onClick = refresh.run).clip(RoundedCornerShape(16.dp)).background(Surface1)
+                .padding(start = 12.dp, end = 10.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(horizontalAlignment = Alignment.End) {
+                    if (d.rates.usd > 0) {
+                        RateTicker("USD: ${num(d.rates.usd)} Bs", RateUsd)
+                        if (d.rates.eur > 0) RateTicker("EUR: ${num(d.rates.eur)} Bs", RateEur)
+                    } else Text(t("kt_no_rate"), color = Muted, style = MaterialTheme.typography.labelMedium)
+                }
+                Spacer(Modifier.width(8.dp))
+                Icon(Icons.Outlined.Refresh, t("btn_update"), tint = Muted.copy(alpha = if (refresh.busy) 1f else 0.6f),
+                    modifier = Modifier.size(14.dp).graphicsLayer { rotationZ = rot.value })
             }
             DropdownMenu(parallel, { parallel = false }, Modifier.background(Surface2)) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -182,39 +206,20 @@ private fun HomeHeader(d: AppData, nav: Nav, onWidgets: () -> Unit, onTutorials:
             }
         }
     }
-    Spacer(Modifier.height(12.dp))
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (Prefs.dev) Chip(Icons.Outlined.CloudSync, t("btn_sync"), onClick = drive)
-        Chip(Icons.Outlined.Widgets, t("btn_widgets"), onClick = onWidgets)
-        Chip(Icons.Outlined.Refresh, t("btn_update"), spinning = busy) {
-            busy = true
-            scope.launch {
-                val r = withContext(Dispatchers.IO) { runCatching { Store.refreshRates() } }
-                busy = false
-                nav.snack(r.fold({ "BCV: ${num(it.bcvUsd)} Bs/$" }, { t("kt_offline") }))
-            }
-        }
-        Chip(Icons.Outlined.Tune, t("btn_settings"), onClick = nav.settings)
-        Chip(Icons.Outlined.School, t("btn_tutorials"), onClick = onTutorials)
-    }
+    Spacer(Modifier.height(4.dp))
 }
+
+/** Valor de la tasa que sube al cambiar (micro-interacción al actualizar). */
+@Composable
+private fun RateTicker(text: String, color: Color) = androidx.compose.animation.AnimatedContent(text, label = "rate", transitionSpec = {
+    (androidx.compose.animation.slideInVertically { it } + androidx.compose.animation.fadeIn()) togetherWith
+        (androidx.compose.animation.slideOutVertically { -it } + androidx.compose.animation.fadeOut())
+}) { Text(it, color = color, style = MaterialTheme.typography.labelMedium) }
 
 @Composable
 private fun RateLine(label: String, v: Double, c: Color) = Row(Modifier.width(200.dp).padding(vertical = 2.dp)) {
     Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = Muted)
     Text(if (v > 0) "${num(v)} Bs" else "—", style = MaterialTheme.typography.labelMedium, color = c)
-}
-
-/** Botoncitos del encabezado (Widgets, Actualizar, Ajustes, Tutoriales): ícono y rótulo diminuto. */
-@Composable
-private fun Chip(ic: ImageVector, label: String, spinning: Boolean = false, onClick: () -> Unit) {
-    val rot = remember { Animatable(0f) }
-    LaunchedEffect(spinning) { while (spinning) { rot.animateTo(rot.value + 360f, tween(700)) } }
-    Column(Modifier.tap(onClick = onClick).clip(RoundedCornerShape(16.dp)).background(Surface1).padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(ic, null, tint = Muted, modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = rot.value })
-        Text(label.uppercase(ES), style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp), color = Muted)
-    }
 }
 
 @Composable
@@ -389,9 +394,10 @@ private fun ExpenseStructure(expenses: List<Transaction>, onOpen: () -> Unit) {
 
 /** Personalizar Dashboard de la web: widgets (mostrar/ocultar y arrastrar para ordenar), acciones rápidas y privacidad. */
 @Composable
-private fun CustomizerSheet(onDismiss: () -> Unit) {
+fun CustomizerSheet(onDismiss: () -> Unit) {
     val wKeys: Set<Any> = Widget.entries.map { "w" + it.name }.toSet()
-    val quickAll = Prefs.quick + (QUICK_DEFAULT - Prefs.quick.toSet())
+    var replacing by remember { mutableStateOf<Route?>(null) } // acceso rápido que se va a cambiar por otro
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     // Column y no LazyColumn: la precarga del LazyColumn mientras el arrastre reordena corrompía la composición (crash)
     val st = rememberReorder(null) { from, to ->
         if (from in wKeys) Prefs.saveWidgets(Prefs.widgets.move(from, to) { "w" + it.name })
@@ -408,12 +414,12 @@ private fun CustomizerSheet(onDismiss: () -> Unit) {
                 ListRow(t(w.key), Modifier.reorderItem(st, "w" + w.name), icon = widgetIcon(w), color = Bg, handle = { DragHandle(st, "w" + w.name, wKeys) },
                     trailingSlot = { Toggle(w !in Prefs.hidden) { Prefs.toggleWidget(w) } })
             } }
-            Section(t("quickActions"))
-            quickAll.forEach { r -> key("q" + r.name) {
-                val on = r in Prefs.quick
+            // no se desmarcan: cada casilla se cambia por otra acción, así la fila del Inicio nunca queda con huecos
+            Section(t("quickActions"), t("kt_tap_to_change"))
+            Prefs.quick.forEach { r -> key("q" + r.name) {
                 ListRow(t(r.key), Modifier.reorderItem(st, "q" + r.name), icon = routeIcon(r), tint = routeColor(r), color = Bg,
-                    handle = if (on) { { DragHandle(st, "q" + r.name, Prefs.quick.map { "q" + it.name }.toSet()) } } else null,
-                    trailingSlot = { Toggle(on) { Prefs.saveQuick(if (on) Prefs.quick - r else Prefs.quick + r) } })
+                    handle = { DragHandle(st, "q" + r.name, Prefs.quick.map { "q" + it.name }.toSet()) },
+                    trailingSlot = { Icon(Icons.Outlined.SwapHoriz, t("kt_change"), tint = Muted) }) { replacing = r }
             } }
             Section(t("privacy"))
             SettingRow(t("hideWelcome")) { Toggle(Prefs.hideWelcome, onChange = Prefs::setHideWelcome) }
@@ -421,7 +427,23 @@ private fun CustomizerSheet(onDismiss: () -> Unit) {
             SettingRow(t("dashboardTxLimit")) { Stepper(Prefs.txLimit, Prefs::setTxLimit) }
         }
     }
+    replacing?.let { old ->
+        TitledSheet(t("kt_replace_with"), t(old.key), onDismiss = { replacing = null }) {
+            Spacer(Modifier.height(10.dp))
+            QUICK_DEFAULT.filter { it != old }.forEach { r ->
+                val used = r in Prefs.quick
+                ListRow(t(r.key), subtitle = if (used) t("kt_swap_positions") else null, icon = routeIcon(r), tint = routeColor(r), color = Bg) {
+                    Prefs.saveQuick(swapQuick(Prefs.quick, old, r))
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                    replacing = null
+                }
+            }
+        }
+    }
 }
+
+/** Pone [new] en la casilla de [old]; si [new] ya estaba en otra casilla, intercambian lugares (el total no cambia nunca). */
+fun swapQuick(list: List<Route>, old: Route, new: Route): List<Route> = list.map { when (it) { old -> new; new -> old; else -> it } }
 
 /** Contador − n + reutilizable (límite de transacciones, aviso previo). */
 @Composable
@@ -443,6 +465,7 @@ fun SettingsSheet(nav: Nav, onDismiss: () -> Unit) {
     var eur by remember { mutableStateOf(if (d.rates.eur > 0) num(d.rates.eur) else "") }
     var busy by remember { mutableStateOf(false) }
     var pinSheet by remember { mutableStateOf(false) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     TitledSheet(t("settings"), onDismiss = onDismiss) {
         Section(t("appearance"), icon = Icons.Outlined.Palette)
         ThemePicker()
@@ -460,6 +483,8 @@ fun SettingsSheet(nav: Nav, onDismiss: () -> Unit) {
         BrandButton(t("update"), Modifier.fillMaxWidth(), Icons.Outlined.Save, enabled = !busy && (source != 2 || parseAmount(usd) != null)) {
             if (source == 2) {
                 Store.setRates(d.rates.copy(usd = parseAmount(usd)!!, eur = parseAmount(eur) ?: 0.0, updatedAt = nowIso(), manual = true)); nav.snack(t("kt_rate_saved"))
+            } else if (!com.metalsyntax.paritykt.sync.online(ctx)) {
+                Store.setRates(d.rates.copy(manual = false, parallel = source == 1)); nav.snack(t("kt_offline_rates"))
             } else {
                 busy = true
                 Store.setRates(d.rates.copy(manual = false, parallel = source == 1))
@@ -478,7 +503,6 @@ fun SettingsSheet(nav: Nav, onDismiss: () -> Unit) {
                     onClick = { pinSheet = true }) { Chevron() }
                 if (Pin.enabled) {
                     SettingRow(t("kt_lock_on_exit"), t("kt_lock_on_exit_desc")) { Toggle(Pin.lockOnExit, onChange = Pin::setLockOnExit) }
-                    val ctx = androidx.compose.ui.platform.LocalContext.current
                     val can = remember { Biometric.available(ctx) }
                     SettingRow(t("biometrics"), if (can) t("biometricsDesc") else t("kt_bio_unavailable"), icon = Icons.Outlined.Fingerprint) {
                         Toggle(Pin.biometric && can, enabled = can) { v ->

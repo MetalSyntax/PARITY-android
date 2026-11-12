@@ -26,6 +26,11 @@ import java.time.LocalDate
  *  3. Google Drive directo con el mismo alcance (drive.file) y el mismo formato mínimo que la web (parity_sync_*.json).
  * Los archivos son los de la web: parity_backup_*.json (completo) y parity_sync_*.json (mínimo, sin recibos).
  */
+/** ¿Hay internet? Se mira antes de sincronizar o pedir tasas para avisar con calma en vez de mostrar un error. */
+fun online(ctx: Context): Boolean = ctx.getSystemService(android.net.ConnectivityManager::class.java)?.let { cm ->
+    cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+} == true
+
 object Sync {
     private const val PREFS = "sync"
     private const val SCOPE = "https://www.googleapis.com/auth/drive.file"

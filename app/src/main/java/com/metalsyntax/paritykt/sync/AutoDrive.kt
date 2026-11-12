@@ -27,7 +27,7 @@ object AutoDrive {
     fun enabled(ctx: Context) = Prefs.dev && Sync.lastDrive(ctx) != null
 
     private fun run(ctx: Context, scope: CoroutineScope, pull: Boolean) {
-        if (!enabled(ctx)) return
+        if (!enabled(ctx) || !online(ctx)) return // sin red: la app sigue 100 % local y lo intenta en el siguiente evento
         Sync.silentToken(ctx.applicationContext) { token ->
             token ?: return@silentToken
             scope.launch(Dispatchers.IO) {

@@ -39,7 +39,13 @@ fun TxRow(tx: Transaction, onOpen: (Transaction) -> Unit) {
         if ((tx.fee ?: 0.0) > 0) "\n${t("commissions")}: ${num(tx.fee!!)} ${symbol(tx.originalCurrency)}" else "",
         icon = icon(if (transfer) "swap" else c.icon), tint = if (transfer) Color(0xFF818CF8) else catColor(c),
         trailing = if (Prefs.balanceVisible) sign + money(inDisplay(tx.normalizedAmountUSD), Prefs.display) else HIDDEN, trailingColor = color,
-        trailingSub = "≈ ${secondary(tx.normalizedAmountUSD)}") { onOpen(tx) }
+        trailingSub = "≈ ${secondary(tx.normalizedAmountUSD)}",
+        // factura asociada: clip discreto bajo el título
+        pill = if (tx.extra.has("receipt")) { { Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Receipt, null, tint = Brand, modifier = Modifier.size(12.dp)); Spacer(Modifier.width(4.dp))
+            Text(InvoiceData.from(tx.extra.optJSONObject("invoiceData"))?.let { t("kt_items_found", it.items.size) } ?: t("receipt"),
+                style = MaterialTheme.typography.labelSmall, color = Brand)
+        } } } else null) { onOpen(tx) }
 }
 
 private val ALL = "ALL"
@@ -169,12 +175,8 @@ fun TxDetail(tx0: Transaction, onEdit: (Transaction) -> Unit, onClose: () -> Uni
     val tx = d.transactions.firstOrNull { it.id == tx0.id } ?: tx0 // la versión al día (tras editar o sincronizar)
     val transfer = tx.type == TxType.TRANSFER
     val c = category(tx.category)
-    val receipt = remember(tx.id, tx.updatedAt) {
-        tx.extra.optString("receipt").takeIf { it.isNotBlank() }?.let { s ->
-            runCatching { android.util.Base64.decode(s.substringAfter("base64,"), android.util.Base64.DEFAULT) }.getOrNull()
-                ?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }
-        }
-    }
+    val receipt = remember(tx.id, tx.updatedAt) { ReceiptOcr.decode(tx.extra.optString("receipt")) }
+    val invoice = remember(tx.id, tx.updatedAt) { InvoiceData.from(tx.extra.optJSONObject("invoiceData")) }
     var tab by remember { mutableStateOf(0) }
     val date = runCatching { LocalDate.parse(tx.date.take(10)).format(DateTimeFormatter.ofPattern("d 'de' MMMM 'de' yyyy", ES)) }.getOrDefault(tx.date)
     Sheet(onClose) {
@@ -193,6 +195,7 @@ fun TxDetail(tx0: Transaction, onEdit: (Transaction) -> Unit, onClose: () -> Uni
             if (tab == 1 && receipt != null) {
                 androidx.compose.foundation.Image(receipt, t("receipt"), Modifier.fillMaxWidth().heightIn(max = 480.dp).clip(RoundedCornerShape(18.dp)).background(Color.Black),
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit)
+                invoice?.let { InvoiceLines(it, tx.originalCurrency) }
             } else Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Bg).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Caps(t("amount"))
