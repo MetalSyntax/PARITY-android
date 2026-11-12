@@ -9,18 +9,73 @@ import java.time.temporal.ChronoUnit
 
 private fun day(iso: String): LocalDate? = runCatching { LocalDate.parse(iso.take(10)) }.getOrNull()
 
-// ------------------------------------------------------------------------------------------------ Disponible para gastar
+// ------------------------------------------------------------------------------------------------ ritmo de ingresos
+
+/** Cada cuánto cobra la persona. Quincenal = 1–14 y 15–fin de mes (pagos del 1 y 15). */
+enum class PayCycle(val key: String) {
+    MONTHLY("kt_cycle_monthly"), BIWEEKLY("kt_cycle_biweekly"), WEEKLY("kt_cycle_weekly"),
+    VARIABLE("kt_cycle_variable"), // varios ingresos en fechas distintas: el período llega hasta el próximo cobro esperado
+}
+
+/** Período de cobro actual y qué parte de un sobre mensual le toca. */
+data class Period(val start: LocalDate, val end: LocalDate, val share: Double)
+
+fun PayCycle.period(today: LocalDate): Period = when (this) {
+    PayCycle.MONTHLY, PayCycle.VARIABLE -> Period(today.withDayOfMonth(1), today.withDayOfMonth(today.lengthOfMonth()), 1.0)
+    PayCycle.BIWEEKLY -> if (today.dayOfMonth < 15) Period(today.withDayOfMonth(1), today.withDayOfMonth(14), 0.5)
+                         else Period(today.withDayOfMonth(15), today.withDayOfMonth(today.lengthOfMonth()), 0.5)
+    PayCycle.WEEKLY -> today.minusDays(today.dayOfWeek.value - 1L).let { Period(it, it.plusDays(6), 7.0 / today.lengthOfMonth()) }
+}
 
 /**
- * «Disponible para gastar», con reservas inteligentes (todo en USD):
- * - [bills]: pagos planificados (gastos) que vencen antes del próximo ingreso planificado — o en 30 días si no hay ingreso
- *   planificado —; son compromisos firmes.
- * - [envelopes]: lo que le queda a cada sobre (presupuesto) este mes, sin contar dos veces lo que ya cubre un pago de esa
- *   categoría. Es una reserva flexible: nunca lleva el disponible a negativo, solo usa el dinero libre ([capped] = no alcanzó).
- * - Las metas NO se reservan: son ahorro opcional, se aporta cuando se quiere.
+ * Ritmo de cobro: primero los ingresos planificados (semanal / quincenal / dos ingresos mensuales en días distintos = quincenal);
+ * si no hay, el historial de ingresos de los últimos 62 días (separación promedio entre cobros). Por defecto, mensual.
  */
-data class SafeToSpend(val balance: Double, val upcoming: List<Pair<ScheduledPayment, LocalDate>>, val billsUsd: Double, val horizon: LocalDate,
-                       val payday: Boolean, val envelopes: List<Pair<Budget, Double>>, val envelopesUsd: Double, val capped: Boolean) {
+fun AppData.detectPayCycle(today: LocalDate = LocalDate.now()): PayCycle {
+    val inc = scheduled.filter { it.type == TxType.INCOME && it.frequency != Frequency.ONCE }
+    val freqs = inc.map { it.frequency }.toSet()
+    val monthlyDays = inc.filter { it.frequency == Frequency.MONTHLY }.mapNotNull { day(it.date)?.dayOfMonth }.distinct()
+    when {
+        freqs.size > 1 || monthlyDays.size >= 3 -> return PayCycle.VARIABLE          // varias empresas / fechas
+        Frequency.WEEKLY in freqs -> return PayCycle.WEEKLY
+        Frequency.BIWEEKLY in freqs || monthlyDays.size == 2 -> return PayCycle.BIWEEKLY
+        Frequency.MONTHLY in freqs -> return PayCycle.MONTHLY
+    }
+    val days = transactions.filter { it.type == TxType.INCOME }.mapNotNull { day(it.date) }.filter { it.isAfter(today.minusDays(62)) }.distinct().sorted()
+    if (days.size < 2) return PayCycle.MONTHLY
+    val gaps = days.zipWithNext { a, b -> ChronoUnit.DAYS.between(a, b) }
+    val gap = gaps.average()
+    if (gaps.size >= 2 && gaps.max() >= 3 * gaps.min().coerceAtLeast(1)) return PayCycle.VARIABLE // cobros irregulares
+    return when { gap <= 9 -> PayCycle.WEEKLY; gap <= 20 -> PayCycle.BIWEEKLY; else -> PayCycle.MONTHLY }
+}
+
+/** Saldo total que había al empezar [date] (saldo de hoy menos lo que entró y salió desde entonces). Incluye lo que sobró antes. */
+fun AppData.balanceAt(date: LocalDate): Double = totalUsd() - transactions.filter { t -> day(t.date)?.let { !it.isBefore(date) } == true }.sumOf {
+    when (it.type) { TxType.INCOME -> it.normalizedAmountUSD; TxType.EXPENSE -> -it.normalizedAmountUSD; else -> 0.0 }
+}
+
+/** Cobros esperados: ingresos planificados atrasados (fecha pasada sin registrar) y los de los próximos [days] días. */
+data class ExpectedIncome(val s: ScheduledPayment, val date: LocalDate, val late: Boolean)
+
+fun AppData.upcomingIncomes(today: LocalDate = LocalDate.now(), days: Long = 30): List<ExpectedIncome> =
+    scheduled.filter { it.type == TxType.INCOME }.flatMap { s ->
+        val first = day(s.date)
+        if (first != null && first.isBefore(today)) listOf(ExpectedIncome(s, first, true))
+        else occurrences(s, today, today.plusDays(days)).map { ExpectedIncome(s, it, false) }
+    }.sortedWith(compareByDescending<ExpectedIncome> { it.late }.thenBy { it.date })
+
+// ------------------------------------------------------------------------------------------------ recomendación del período
+
+/**
+ * Recomendación para el período de cobro actual (todo en USD). El número principal de la app es el SALDO; esto es la guía:
+ * - [bills]: pagos planificados (gastos) que vencen de hoy al fin del período (o al día antes del próximo ingreso planificado).
+ * - [envelopes]: la parte de cada sobre mensual que le toca al período (½ en quincenal) menos lo gastado en esa categoría en
+ *   el período, sin pasar de lo que le queda al sobre en el mes y sin contar dos veces un pago de la misma categoría.
+ *   Es flexible: nunca lleva la recomendación a negativo ([capped] = no alcanzó el dinero libre).
+ * - Las metas NO se reservan: ahorro opcional.
+ */
+data class SafeToSpend(val balance: Double, val cycle: PayCycle, val period: Period, val upcoming: List<Pair<ScheduledPayment, LocalDate>>,
+                       val billsUsd: Double, val envelopes: List<Pair<Budget, Double>>, val envelopesUsd: Double, val capped: Boolean) {
     val reserved get() = billsUsd + envelopesUsd
     val available get() = balance - reserved
 }
@@ -38,28 +93,35 @@ fun occurrences(s: ScheduledPayment, today: LocalDate, until: LocalDate): List<L
     return out
 }
 
-fun AppData.safeToSpend(today: LocalDate = LocalDate.now()): SafeToSpend {
-    // hasta el próximo ingreso planificado (cobro): lo que vence después se pagará con ese ingreso
-    val nextIncome = scheduled.filter { it.type == TxType.INCOME }.flatMap { occurrences(it, today.plusDays(1), today.plusDays(30)) }.minOrNull()
-    val horizon = nextIncome?.minusDays(1) ?: today.plusDays(30)
+fun AppData.safeToSpend(today: LocalDate = LocalDate.now(), cycle: PayCycle = detectPayCycle(today)): SafeToSpend {
+    val period = cycle.period(today)
+    val nextIncome = scheduled.filter { it.type == TxType.INCOME }.flatMap { occurrences(it, today.plusDays(1), period.end) }.minOrNull()
+    val horizon = nextIncome?.minusDays(1) ?: period.end
     val up = scheduled.filter { it.type == TxType.EXPENSE }.flatMap { s -> occurrences(s, today, horizon).map { s to it } }.sortedBy { it.second }
     val usd = { s: ScheduledPayment -> rates.toUsd(s.amount, s.currency) }
     val bills = up.sumOf { usd(it.first) }
-    // sobres: lo que queda del mes, menos lo que ya reservan los pagos de esa misma categoría
     val month = java.time.YearMonth.from(today)
+    fun spentIn(cat: String, from: LocalDate) = transactions.filter { t ->
+        t.type == TxType.EXPENSE && t.category == cat && day(t.date)?.let { !it.isBefore(from) && !it.isAfter(today) } == true
+    }.sumOf { it.normalizedAmountUSD }
+    // con un cobro esperado: cada sobre reserva lo que le queda del mes en proporción a los días hasta ese cobro
+    // (sirve para cualquier mezcla de empresas y fechas); sin cobro conocido: la parte del período según el ritmo
+    val daysLeftInMonth = ChronoUnit.DAYS.between(today, today.withDayOfMonth(today.lengthOfMonth())) + 1
+    val pace = nextIncome?.let { (ChronoUnit.DAYS.between(today, it).toDouble() / daysLeftInMonth).coerceIn(0.0, 1.0) }
     val env = activeBudgets(month).filter { it.limit > 0 }.map { b ->
-        val left = (b.limit - spentUsd(b.categoryId, month)).coerceAtLeast(0.0)
-        val billsHere = up.filter { it.first.category == b.categoryId && java.time.YearMonth.from(it.second) == month }.sumOf { usd(it.first) }
-        b to (left - billsHere).coerceAtLeast(0.0)
+        val monthLeft = (b.limit - spentUsd(b.categoryId, month)).coerceAtLeast(0.0)
+        val periodLeft = if (pace != null) monthLeft * pace else (b.limit * period.share - spentIn(b.categoryId, period.start)).coerceAtLeast(0.0)
+        val billsHere = up.filter { it.first.category == b.categoryId }.sumOf { usd(it.first) }
+        b to (minOf(periodLeft, monthLeft) - billsHere).coerceAtLeast(0.0)
     }.filter { it.second > 0.005 }
     val envTotal = env.sumOf { it.second }
     val free = (totalUsd() - bills).coerceAtLeast(0.0)
-    return SafeToSpend(totalUsd(), up, bills, horizon, nextIncome != null, env, minOf(envTotal, free), envTotal > free + 0.005)
+    return SafeToSpend(totalUsd(), cycle, period.copy(end = horizon), up, bills, env, minOf(envTotal, free), envTotal > free + 0.005)
 }
 
 // ------------------------------------------------------------------------------------------------ Para hoy
 
-enum class CardKind { DUE, BUDGET, GOAL, NO_SPEND, WEEK }
+enum class CardKind { DUE, INCOME, BUDGET, GOAL, NO_SPEND, WEEK }
 
 /** Tarjeta accionable del bloque «Para hoy». [value] depende del tipo (monto, % o diferencia). */
 data class TodayCard(val kind: CardKind, val scheduled: ScheduledPayment? = null, val date: LocalDate? = null, val budget: Budget? = null,
@@ -75,8 +137,11 @@ private fun AppData.expensesUsd(from: LocalDate, to: LocalDate) = transactions.f
  */
 fun AppData.todayCards(today: LocalDate = LocalDate.now(), noSpend: Set<String> = emptySet()): List<TodayCard> {
     val out = mutableListOf<TodayCard>()
-    scheduled.mapNotNull { s -> day(s.date)?.takeIf { !it.isAfter(today.plusDays(1)) }?.let { s to it } }.sortedBy { it.second }.take(2)
-        .forEach { (s, d) -> out += TodayCard(CardKind.DUE, scheduled = s, date = d, value = s.amount) }
+    // cobros atrasados primero (avisar que no ha llegado), luego pagos que vencen, luego cobros de los próximos 3 días
+    upcomingIncomes(today, 3).filter { it.late }.take(2).forEach { out += TodayCard(CardKind.INCOME, scheduled = it.s, date = it.date, value = it.s.amount) }
+    scheduled.filter { it.type == TxType.EXPENSE }.mapNotNull { s -> day(s.date)?.takeIf { !it.isAfter(today.plusDays(1)) }?.let { s to it } }
+        .sortedBy { it.second }.take(2).forEach { (s, d) -> out += TodayCard(CardKind.DUE, scheduled = s, date = d, value = s.amount) }
+    upcomingIncomes(today, 3).filter { !it.late }.take(1).forEach { out += TodayCard(CardKind.INCOME, scheduled = it.s, date = it.date, value = it.s.amount) }
     activeBudgets().filter { it.limit > 0 }.map { it to spentUsd(it.categoryId) }.filter { (b, s) -> s / b.limit >= 0.8 }
         .sortedByDescending { (b, s) -> s / b.limit }.forEach { (b, s) -> out += TodayCard(CardKind.BUDGET, budget = b, value = b.limit - s) }
     goals.filter { !it.completed && it.targetAmount > 0 && it.savedAmount / it.targetAmount >= 0.9 }

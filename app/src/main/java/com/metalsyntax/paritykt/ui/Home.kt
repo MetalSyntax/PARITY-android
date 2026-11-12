@@ -480,6 +480,13 @@ fun SettingsSheet(nav: Nav, onDismiss: () -> Unit) {
     TitledSheet(t("settings"), onDismiss = onDismiss) {
         Section(t("appearance"), icon = Icons.Outlined.Palette)
         ThemePicker()
+        // ritmo de cobro: reparte los sobres por período (quincenal = ½ sobre por quincena)
+        Section(t("kt_pay_cycle"), icon = Icons.Outlined.Payments)
+        Text(t("kt_pay_cycle_desc", t(d.detectPayCycle().key)), style = MaterialTheme.typography.bodySmall, color = Muted)
+        Spacer(Modifier.height(10.dp))
+        OptionGrid(listOf("AUTO") + PayCycle.entries.map { it.name }, { it == Prefs.payCycle }, columns = 2, onPick = Prefs::setPayCycle) { k, on ->
+            Text(if (k == "AUTO") t("kt_cycle_auto") else t(PayCycle.valueOf(k).key), style = MaterialTheme.typography.labelLarge, color = if (on) Color.White else Ink, maxLines = 1)
+        }
         Section(t("exchangeRate"), icon = Icons.Outlined.TrendingUp)
         Text(t("kt_rate_source_desc"), style = MaterialTheme.typography.bodySmall, color = Muted)
         Spacer(Modifier.height(12.dp))

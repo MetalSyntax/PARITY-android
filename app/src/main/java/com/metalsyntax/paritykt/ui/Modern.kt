@@ -55,7 +55,7 @@ import kotlin.random.Random
 fun ModernHome(nav: Nav) {
     val d = Store.data
     val today = LocalDate.now()
-    val safe = d.safeToSpend(today)
+    val safe = d.safeToSpend(today, payCycle(d))
     val cards = d.todayCards(today, Metrics.noSpend)
     val streak = d.streak(today, Metrics.noSpend)
     val recent = d.transactions.sortedByDescending { it.date }.take(5)
@@ -111,21 +111,23 @@ private fun ModernHeader(d: AppData, nav: Nav, streak: Int, onConverter: () -> U
 @Composable
 private fun Hero(d: AppData, s: SafeToSpend, onBreakdown: () -> Unit) {
     val anim = remember { Animatable(0f) }
-    LaunchedEffect(s.available) { anim.snapTo(0f); anim.animateTo(1f, tween(900, easing = FastOutSlowInEasing)) }
+    LaunchedEffect(s.balance) { anim.snapTo(0f); anim.animateTo(1f, tween(900, easing = FastOutSlowInEasing)) }
     val low = s.available < 0
+    val next = remember(d.scheduled) { d.upcomingIncomes(LocalDate.now(), 45).firstOrNull() }
     val hist = remember(d.transactions, s.balance) { balanceHistory(d) }
     GlassCard(Modifier.fillMaxWidth(), onClick = onBreakdown) {
         Column(Modifier.padding(22.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Caps(t("kt_safe_to_spend"), Modifier.weight(1f))
+                Caps(t("kt_balance"), Modifier.weight(1f))
                 DisplayCurrencyButton(36.dp)
                 Spacer(Modifier.width(8.dp))
                 RoundIcon(if (Prefs.balanceVisible) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff, t("kt_toggle_balance"), Prefs::toggleBalance,
                     tint = Muted, size = 36.dp, bg = Bg)
             }
             Spacer(Modifier.height(10.dp))
-            AutoText(shown(s.available * anim.value), MaterialTheme.typography.displaySmall, if (low) Warning else Ink)
-            Text("≈ ${secondary(s.available)}", style = MaterialTheme.typography.labelMedium, color = Muted)
+            // el saldo es el número principal: si está en tus cuentas, es tuyo para usar
+            AutoText(shown(s.balance * anim.value), MaterialTheme.typography.displaySmall, Ink)
+            Text("≈ ${secondary(s.balance)}", style = MaterialTheme.typography.labelMedium, color = Muted)
             if (low) Text(t("kt_safe_low"), Modifier.padding(top = 6.dp), style = MaterialTheme.typography.bodySmall, color = Warning)
             if (hist.size > 1 && d.transactions.isNotEmpty()) {
                 val up = hist.last() >= hist.first()
@@ -139,15 +141,33 @@ private fun Hero(d: AppData, s: SafeToSpend, onBreakdown: () -> Unit) {
                     drawPath(path, (if (up) Income else Color(0xFFF43F5E)).copy(alpha = 0.6f), style = Stroke(3.dp.toPx(), cap = StrokeCap.Round))
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(14.dp))
+            // recomendación del período de cobro, en pequeño
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${t("kt_balance")} ${shown(s.balance)} · ${t("kt_reserved")} ${shown(s.reserved)}", Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelMedium, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Pill(t(s.cycle.key) + " · " + t("kt_until", shortDay(s.period.end)), Brand)
+                Spacer(Modifier.weight(1f))
                 Icon(Icons.Outlined.Info, t("kt_breakdown"), tint = Muted, modifier = Modifier.size(16.dp))
+            }
+            Spacer(Modifier.height(8.dp))
+            next?.let { n ->
+                Text(if (n.late) t("kt_next_income_late", n.s.name, shortDay(n.date)) else t("kt_next_income", n.s.name, shortDay(n.date), money(n.s.amount, n.s.currency)),
+                    Modifier.padding(bottom = 8.dp), style = MaterialTheme.typography.labelMedium, color = if (n.late) Warning else Income, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Row {
+                MiniStat(t("kt_free_period"), shown(s.available.coerceAtLeast(0.0)), if (low) Warning else Income, Modifier.weight(1f))
+                MiniStat(t("kt_reserved_period"), shown(s.reserved), Muted, Modifier.weight(1f))
             }
         }
     }
 }
+
+@Composable
+private fun MiniStat(label: String, value: String, color: Color, modifier: Modifier) = Column(modifier) {
+    Text(label, style = MaterialTheme.typography.labelSmall, color = Muted, maxLines = 1)
+    Text(value, style = MaterialTheme.typography.titleSmall, color = color, maxLines = 1)
+}
+
+private fun shortDay(d: LocalDate) = d.format(java.time.format.DateTimeFormatter.ofPattern("d MMM", ES))
 
 /** Las 3 acciones núcleo (en vez de 8 accesos rápidos). */
 @Composable
@@ -174,6 +194,14 @@ private fun TodayRow(c: TodayCard, nav: Nav) {
     val today = LocalDate.now()
     var dot = Brand; var title = ""; var sub: String? = null; var action: String? = null; var onAction: () -> Unit = {}
     when (c.kind) {
+        CardKind.INCOME -> {
+            val s = c.scheduled!!; val dd = c.date!!
+            dot = if (dd.isBefore(today)) Warning else Income
+            title = if (dd.isBefore(today)) t("kt_income_late", s.name, shortDay(dd))
+                    else t("kt_income_expected", s.name, if (dd == today) t("today").lowercase() else if (dd == today.plusDays(1)) t("kt_tomorrow").lowercase() else shortDay(dd))
+            sub = money(s.amount, s.currency); action = t("kt_got_paid")
+            onAction = { if (Store.postScheduled(s)) { haptic.performHapticFeedback(HapticFeedbackType.LongPress); nav.snack(t("kt_income_registered")) } else nav.go(Route.PLAN) }
+        }
         CardKind.DUE -> {
             val s = c.scheduled!!; val dd = c.date!!
             val whenTxt = when { dd.isBefore(today) -> t("kt_overdue"); dd == today -> t("today").lowercase(); else -> t("kt_tomorrow").lowercase() }
@@ -235,7 +263,8 @@ private fun SumLine(label: String, value: String, color: Color) = Row(Modifier.f
 @Composable
 private fun Breakdown(s: SafeToSpend, nav: Nav, onDismiss: () -> Unit) {
     val d = Store.data
-    TitledSheet(t("kt_safe_to_spend"), t("kt_safe_formula"), onDismiss) {
+    TitledSheet(t("kt_period_reco"), t(s.cycle.key) + " · " + shortDay(s.period.start) + " – " + shortDay(s.period.end), onDismiss) {
+        Text(t("kt_period_reco_desc"), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = Muted)
         Spacer(Modifier.height(12.dp))
         SumLine(t("kt_balance"), shown(s.balance), Ink)
         d.accounts.forEach { a ->
@@ -244,23 +273,32 @@ private fun Breakdown(s: SafeToSpend, nav: Nav, onDismiss: () -> Unit) {
         }
         Spacer(Modifier.height(10.dp))
         // pagos firmes hasta el próximo ingreso
-        SumLine(if (s.payday) t("kt_bills_until_payday", shortDate(s.horizon.plusDays(1).toString())) else t("kt_bills_30"), "− " + shown(s.billsUsd), Warning)
+        SumLine(t("kt_bills_period"), "− " + shown(s.billsUsd), Warning)
         s.upcoming.forEach { (p, date) ->
             ListRow(p.name, subtitle = shortDate(date.toString()), icon = Icons.Outlined.CalendarMonth, tint = Warning, trailing = money(p.amount, p.currency), color = Bg)
         }
         if (s.upcoming.isEmpty()) Text(t("kt_no_bills"), style = MaterialTheme.typography.bodySmall, color = Muted)
         Spacer(Modifier.height(10.dp))
         // sobres: lo que queda de cada presupuesto este mes (reserva flexible)
-        SumLine(t("kt_envelopes_left"), "− " + shown(s.envelopesUsd), Brand)
+        SumLine(t("kt_envelopes_period"), "− " + shown(s.envelopesUsd), Brand)
         s.envelopes.forEach { (b, left) ->
             val c = category(b.categoryId)
-            ListRow(c.name, subtitle = t("kt_envelope_of", shown(b.limit)), icon = icon(c.icon), tint = catColor(c), trailing = shown(left), color = Bg)
+            ListRow(c.name, subtitle = t("kt_envelope_share", shown(b.limit), "%.0f%%".format(s.period.share * 100)), icon = icon(c.icon), tint = catColor(c), trailing = shown(left), color = Bg)
         }
         if (s.envelopes.isEmpty()) Text(t("kt_no_envelopes"), style = MaterialTheme.typography.bodySmall, color = Muted)
         if (s.capped) Text(t("kt_envelopes_capped"), Modifier.padding(top = 6.dp), style = MaterialTheme.typography.bodySmall, color = Warning)
         Text(t("kt_goals_not_reserved"), Modifier.padding(top = 10.dp), style = MaterialTheme.typography.bodySmall, color = Muted)
+        // cuándo deberían pagarte (todas las empresas / fuentes)
+        val incomes = d.upcomingIncomes(LocalDate.now(), 30)
+        Spacer(Modifier.height(10.dp))
+        SumLine(t("kt_expected_incomes"), "+ " + shown(incomes.sumOf { Store.usd(it.s.amount, it.s.currency) }), Income)
+        incomes.forEach { e ->
+            ListRow(e.s.name, subtitle = if (e.late) t("kt_late_since", shortDate(e.date.toString())) else shortDate(e.date.toString()),
+                icon = Icons.Outlined.Payments, tint = if (e.late) Warning else Income, trailing = money(e.s.amount, e.s.currency), color = Bg)
+        }
+        if (incomes.isEmpty()) Text(t("kt_no_expected_incomes"), style = MaterialTheme.typography.bodySmall, color = Muted)
         HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Glass)
-        SumLine(t("kt_safe_to_spend"), shown(s.available), if (s.available < 0) Warning else Brand)
+        SumLine(t("kt_free_period"), shown(s.available.coerceAtLeast(0.0)), if (s.available < 0) Warning else Income)
         Spacer(Modifier.height(14.dp))
         GhostButton(t("analysis"), Icons.Outlined.Insights, modifier = Modifier.fillMaxWidth().height(52.dp), bg = Bg) { onDismiss(); nav.go(Route.ANALYSIS) }
     }
@@ -316,7 +354,8 @@ fun PlanHub(nav: Nav) {
     val limit = bs.sumOf { it.limit }; val spent = bs.sumOf { d.spentUsd(it.categoryId) }
     val goals = d.goals.filter { !it.completed }
     val best = goals.filter { it.targetAmount > 0 }.maxByOrNull { it.savedAmount / it.targetAmount }
-    val next = d.scheduled.minByOrNull { it.date }
+    val next = d.scheduled.filter { it.type == TxType.EXPENSE }.minByOrNull { it.date }
+    val nextIn = d.upcomingIncomes(LocalDate.now(), 45).firstOrNull()
     val pending = d.lists.sumOf { l -> l.items.count { !it.completed } }
     val monthSpent = d.monthTx().filter { it.type == TxType.EXPENSE }.sumOf { it.normalizedAmountUSD }
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
@@ -332,7 +371,8 @@ fun PlanHub(nav: Nav) {
         }
         item {
             HubCard(routeIcon(Route.PLAN), routeColor(Route.PLAN), t("scheduled"),
-                next?.let { t("kt_hub_next", it.name, shortDate(it.date)) } ?: t("kt_hub_plan_empty"), null) { nav.go(Route.PLAN) }
+                listOfNotNull(next?.let { t("kt_hub_next", it.name, shortDate(it.date)) }, nextIn?.let { t("kt_hub_next_income", it.s.name, shortDate(it.date.toString())) })
+                    .joinToString("\n").ifEmpty { t("kt_hub_plan_empty") }, null) { nav.go(Route.PLAN) }
         }
         item {
             HubCard(routeIcon(Route.SHOPPING), routeColor(Route.SHOPPING), t("shoppingList"),

@@ -90,14 +90,23 @@
 └─────────────────────────────────────┘
 ```
 
-### 4.1 Héroe: "Disponible para gastar" ✅
-- **Fórmula inteligente (offline), v0.6.1:**
-  - **Pagos fijos:** gastos planificados que vencen **antes del próximo ingreso planificado** (lo que vence después lo cubre ese ingreso); si no hay ingreso planificado, los próximos 30 días. Son la única reserva que puede dejar el número en negativo.
-  - **Sobres:** lo que le queda a cada presupuesto este mes, sin contar dos veces un pago de esa misma categoría. Es una reserva **flexible**: solo usa el dinero libre y nunca lleva el disponible a negativo (si no alcanza, se avisa para bajar los sobres).
-  - **Metas: no se reservan.** Son ahorro opcional; se aporta cuando se quiere (antes restaban un "aporte mensual" que la persona nunca definió y daban falsos negativos).
-- El desglose (tocar el héroe) muestra cada pago, cada sobre con su restante y la nota sobre metas.
-- Mantiene: ojo para ocultar, moneda de visualización, tendencia de 30 días.
-- **Psicología:** un número confiable reduce la ansiedad; un negativo falso enseña a ignorarlo.
+### 4.1 Héroe: el **saldo** es el número principal ✅ (v0.6.2)
+- Si está en tus cuentas, es tuyo: el número grande es el **saldo**. Debajo, en pequeño y como recomendación del período:
+  **Libre para gastar** y **Reservado del período**, más el ritmo de cobro («Quincenal · hasta 14 nov.») y el **próximo cobro**
+  («Próximo cobro: Empresa B · 15 nov. · $ 300» o «Cobro atrasado: Empresa A»).
+- **Ritmo de ingresos** (Ajustes → Frecuencia de ingresos: Automático / Mensual / Quincenal / Semanal / Varios ingresos).
+  Automático lo detecta de los ingresos planificados (1 y 15 → quincenal; 3+ fechas o frecuencias mezcladas → varios ingresos)
+  o, si no hay, del historial de cobros (separación entre cobros; irregular → varios ingresos).
+- **Reservado del período** (todo offline):
+  - **Pagos fijos** de hoy hasta el día antes del próximo cobro esperado (o fin del período).
+  - **Sobres al ritmo del cobro:** con un cobro esperado, cada sobre aparta lo que le queda del mes × días hasta ese cobro ÷ días
+    que quedan del mes (sirve para varias empresas y fechas variables). Sin cobro conocido, la parte del período (½ en quincenal)
+    menos lo gastado en el período. Nunca dejan la recomendación en negativo; no se cuentan dos veces con un pago de la misma categoría.
+  - **Metas: no se reservan** (ahorro opcional).
+- **Sobres (Legacy y Modern):** se comparan con el **dinero del mes** = lo que sobró del mes anterior + lo cobrado este mes
+  (antes solo lo cobrado: 500 de sobres frente a 250 cobrados daba «208 %»), y se indica cuánto le toca a cada período.
+- **Cobros esperados:** «Para hoy» avisa «Te deberían pagar X mañana» y «X no ha llegado (era el 9 nov.)» con «Ya me pagaron»;
+  el desglose lista los cobros de los próximos 30 días por empresa; Plan muestra el próximo pago y el próximo cobro.
 
 ### 4.2 Acciones núcleo (reemplaza los 8 accesos)
 - 3 botones: **Gasto**, **Factura** (abre la cámara directo al OCR) y **Transferir**.

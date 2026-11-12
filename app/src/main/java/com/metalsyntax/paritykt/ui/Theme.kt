@@ -8,6 +8,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.metalsyntax.paritykt.data.Currency
+import com.metalsyntax.paritykt.data.detectPayCycle
 
 /** Colores resueltos del tema actual (modo + acento). */
 data class Palette(val bg: Color, val surface: Color, val card: Color, val ink: Color, val muted: Color, val brand: Color, val dark: Boolean)
@@ -60,6 +61,7 @@ object Prefs {
     var txLimit by mutableIntStateOf(6); private set
     var dev by mutableStateOf(false); private set
     var onboarded by mutableStateOf(true); private set
+    var payCycle by mutableStateOf("AUTO"); private set                       // AUTO o un PayCycle
 
     val theme get() = mode.let { m -> Palette(Color(m.bg), Color(m.surface), Color(m.card), Color(m.ink), Color(m.muted), accent, m != Mode.LIGHT) }
 
@@ -80,6 +82,7 @@ object Prefs {
         quick = list("quick", QUICK_DEFAULT).let { q -> if (q.size >= 4) q else q + (QUICK_DEFAULT - q.toSet()).take(4 - q.size) }
         hideWelcome = sp.getBoolean("hideWelcome", false); hideName = sp.getBoolean("hideName", false)
         txLimit = sp.getInt("txLimit", 6); dev = sp.getBoolean("dev", false)
+        payCycle = sp.getString("payCycle", "AUTO")!!
         onboarded = sp.getBoolean("onboarded", sp.contains("theme") || sp.contains("mode")) // instalaciones previas no repiten el onboarding
     }
 
@@ -102,6 +105,7 @@ object Prefs {
     @JvmName("applyHideName") fun setHideName(v: Boolean) { hideName = v; put("hideName", v) }
     @JvmName("applyTxLimit") fun setTxLimit(v: Int) { txLimit = v.coerceIn(3, 20); put("txLimit", txLimit) }
     @JvmName("applyDev") fun setDev(v: Boolean) { dev = v; put("dev", v) }
+    @JvmName("applyPayCycle") fun setPayCycle(v: String) { payCycle = v; put("payCycle", v) }
     fun finishOnboarding() { onboarded = true; put("onboarded", true) }
 }
 
@@ -184,3 +188,8 @@ object Metrics {
 
     fun medianSeconds(): Double? = saves.sorted().takeIf { it.isNotEmpty() }?.let { it[it.size / 2] / 1000.0 }
 }
+
+
+/** Ritmo de cobro en uso: el elegido en Ajustes o, en «Automático», el detectado. */
+fun payCycle(d: com.metalsyntax.paritykt.data.AppData = com.metalsyntax.paritykt.data.Store.data): com.metalsyntax.paritykt.data.PayCycle =
+    com.metalsyntax.paritykt.data.PayCycle.entries.firstOrNull { it.name == Prefs.payCycle } ?: d.detectPayCycle()

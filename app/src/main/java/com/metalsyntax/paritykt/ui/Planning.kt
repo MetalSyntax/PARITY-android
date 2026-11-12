@@ -144,7 +144,11 @@ private fun Budgets(month: YearMonth, creating: Boolean, doneCreating: () -> Uni
     var edit by remember { mutableStateOf<Budget?>(null) }
     val list = d.activeBudgets(month)
     val limit = list.sumOf { it.limit }
-    val income = d.monthTx(month).filter { it.type == TxType.INCOME }.sumOf { it.normalizedAmountUSD }
+    val received = d.monthTx(month).filter { it.type == TxType.INCOME }.sumOf { it.normalizedAmountUSD }
+    // lo que sobró del mes anterior también financia los sobres (saldo al empezar el mes)
+    val carried = d.balanceAt(month.atDay(1)).coerceAtLeast(0.0)
+    val income = carried + received
+    val cycle = payCycle(d)
     val prev = month.minusMonths(1)
     LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp)) {
         if (list.isEmpty()) item {
@@ -159,7 +163,7 @@ private fun Budgets(month: YearMonth, creating: Boolean, doneCreating: () -> Uni
                 Column(Modifier.padding(20.dp)) {
                     Row {
                         Column(Modifier.weight(1f)) { Caps(t("kt_total_envelopes")); AutoText(shown(limit), MaterialTheme.typography.headlineMedium, Ink); Text(secondary(limit), style = MaterialTheme.typography.labelSmall, color = Muted) }
-                        Column(horizontalAlignment = Alignment.End) { Caps(t("kt_month_income")); Text(shown(income), style = MaterialTheme.typography.headlineSmall, color = Income); Text(secondary(income), style = MaterialTheme.typography.labelSmall, color = Muted) }
+                        Column(horizontalAlignment = Alignment.End) { Caps(t("kt_month_money")); Text(shown(income), style = MaterialTheme.typography.headlineSmall, color = Income); Text(secondary(income), style = MaterialTheme.typography.labelSmall, color = Muted) }
                     }
                     Spacer(Modifier.height(14.dp))
                     Bar(if (income > 0) (limit / income).toFloat() else 0f, Brand)
@@ -168,6 +172,13 @@ private fun Budgets(month: YearMonth, creating: Boolean, doneCreating: () -> Uni
                         Text(pct(limit, income), style = MaterialTheme.typography.labelLarge, color = Brand); Spacer(Modifier.width(8.dp))
                         Text(t("kt_of_income_here"), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = Muted)
                         Text("+ ${shown((income - limit).coerceAtLeast(0.0))} ${t("remaining")}", style = MaterialTheme.typography.labelMedium, color = Income)
+                    }
+                    // de dónde sale: lo que sobró + lo cobrado; y cuánto le toca a cada período de cobro
+                    Text(t("kt_month_money_detail", shown(carried), shown(received)), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = Muted)
+                    if (cycle != PayCycle.MONTHLY && month == YearMonth.now()) {
+                        val per = cycle.period(java.time.LocalDate.now())
+                        Text(t("kt_envelopes_per_period", t(cycle.key), shown(limit * per.share)), Modifier.padding(top = 4.dp),
+                            style = MaterialTheme.typography.bodySmall, color = Brand)
                     }
                 }
             }
