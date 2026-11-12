@@ -13,18 +13,41 @@ class InsightsTest {
         exchangeRate = 40.0, normalizedAmountUSD = amount, type = TxType.EXPENSE, category = cat, accountId = "a", note = note,
         date = today.minusDays(daysAgo).toString() + "T10:00:00")
 
-    @Test fun safeToSpendReservesUpcomingAndGoals() {
+    private val month = today.toString().take(7)
+
+    @Test fun goalsAreNeverReserved() {
+        val d = AppData(accounts = listOf(acc), goals = listOf(Goal(name = "Casa", targetAmount = 50000.0, savedAmount = 100.0, deadline = today.plusMonths(2).toString())))
+        val s = d.safeToSpend(today)
+        assertEquals(1000.0, s.available, 1e-9) // meta enorme sin aporte definido: no resta nada
+    }
+
+    @Test fun billsUntilNextIncomeAndEnvelopesWithoutDoubleCount() {
         val d = AppData(accounts = listOf(acc), rates = Rates(usd = 40.0),
             scheduled = listOf(
-                ScheduledPayment(name = "Netflix", amount = 15.0, currency = Currency.USD, date = today.plusDays(3).toString(), frequency = Frequency.MONTHLY),
-                ScheduledPayment(name = "Café", amount = 2.0, currency = Currency.USD, date = today.toString(), frequency = Frequency.WEEKLY),
-                ScheduledPayment(name = "Sueldo", amount = 500.0, currency = Currency.USD, date = today.toString(), frequency = Frequency.MONTHLY, type = TxType.INCOME)),
-            goals = listOf(Goal(name = "Laptop", targetAmount = 600.0, savedAmount = 300.0, deadline = today.plusMonths(2).toString())))
+                ScheduledPayment(name = "Internet", amount = 20.0, currency = Currency.USD, date = today.plusDays(1).toString(), frequency = Frequency.MONTHLY, category = "internet"),
+                ScheduledPayment(name = "Café", amount = 2.0, currency = Currency.USD, date = today.toString(), frequency = Frequency.WEEKLY, category = "coffee"),
+                ScheduledPayment(name = "Sueldo", amount = 500.0, currency = Currency.USD, date = today.plusDays(10).toString(), frequency = Frequency.MONTHLY, type = TxType.INCOME)),
+            budgets = listOf(Budget("food", 100.0, month), Budget("coffee", 10.0, month)),
+            transactions = listOf(tx(30.0, 0, "Mercado", "food")))
         val s = d.safeToSpend(today)
-        // Netflix 1 vez + café semanal 5 veces en 31 días; el ingreso no reserva
-        assertEquals(15.0 + 2.0 * 5, s.upcomingUsd, 1e-9)
-        assertEquals(100.0, s.goals.single().second, 1e-9) // faltan 300 en 3 meses
-        assertEquals(1000.0 - 25.0 - 100.0, s.available, 1e-9)
+        // hasta el día antes del sueldo: internet 1 vez + café 2 veces (hoy y +7) = 24; lo que vence después lo paga el sueldo
+        assertTrue(s.payday); assertEquals(today.plusDays(9), s.horizon)
+        assertEquals(24.0, s.billsUsd, 1e-9)
+        // sobres: comida 100 − 30 = 70; café 10 − 4 de pagos de café ya reservados (si caen este mes) ≥ 6
+        assertEquals(70.0, s.envelopes.first { it.first.categoryId == "food" }.second, 1e-9)
+        val cafeBills = s.upcoming.filter { it.first.category == "coffee" && it.second.toString().take(7) == month }.size * 2.0
+        assertEquals(10.0 - cafeBills, s.envelopes.first { it.first.categoryId == "coffee" }.second, 1e-9)
+        assertEquals(1000.0 - 24.0 - 70.0 - (10.0 - cafeBills), s.available, 1e-9)
+    }
+
+    @Test fun envelopesNeverPushAvailableBelowZero() {
+        val d = AppData(accounts = listOf(acc.copy(balance = 100.0)), budgets = listOf(Budget("food", 500.0, month)),
+            scheduled = listOf(ScheduledPayment(name = "Luz", amount = 30.0, currency = Currency.USD, date = today.plusDays(2).toString(), frequency = Frequency.MONTHLY, category = "bills")))
+        val s = d.safeToSpend(today)
+        assertTrue(s.capped)
+        assertEquals(0.0, s.available, 1e-9)        // sobres solo usan los 70 libres
+        val broke = AppData(accounts = listOf(acc.copy(balance = 10.0)), scheduled = d.scheduled).safeToSpend(today)
+        assertEquals(-20.0, broke.available, 1e-9)  // negativo solo si los pagos fijos superan el saldo
     }
 
     @Test fun todayCardsAndWeekFallback() {

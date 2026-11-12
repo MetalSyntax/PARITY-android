@@ -11,8 +11,8 @@ android {
         applicationId = "com.metalsyntax.paritykt" // distinto de la Parity actual: conviven en el teléfono
         minSdk = 26
         targetSdk = 34
-        versionCode = 9
-        versionName = "0.6.0"
+        versionCode = 10
+        versionName = "0.6.1"
     }
 
     // A/B: Legacy = la app parecida a la web (mismo paquete, se actualiza sin perder datos);

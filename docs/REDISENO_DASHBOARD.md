@@ -90,11 +90,14 @@
 └─────────────────────────────────────┘
 ```
 
-### 4.1 Héroe: "Disponible para gastar"
-- **Fórmula (offline):** `saldo total − pagos planificados de los próximos 30 días − aportes mensuales comprometidos a metas`.
-- Debajo, en pequeño: *Saldo* y *Reservado*, tocables (hoja con el desglose).
+### 4.1 Héroe: "Disponible para gastar" ✅
+- **Fórmula inteligente (offline), v0.6.1:**
+  - **Pagos fijos:** gastos planificados que vencen **antes del próximo ingreso planificado** (lo que vence después lo cubre ese ingreso); si no hay ingreso planificado, los próximos 30 días. Son la única reserva que puede dejar el número en negativo.
+  - **Sobres:** lo que le queda a cada presupuesto este mes, sin contar dos veces un pago de esa misma categoría. Es una reserva **flexible**: solo usa el dinero libre y nunca lleva el disponible a negativo (si no alcanza, se avisa para bajar los sobres).
+  - **Metas: no se reservan.** Son ahorro opcional; se aporta cuando se quiere (antes restaban un "aporte mensual" que la persona nunca definió y daban falsos negativos).
+- El desglose (tocar el héroe) muestra cada pago, cada sobre con su restante y la nota sobre metas.
 - Mantiene: ojo para ocultar, moneda de visualización, tendencia de 30 días.
-- **Psicología:** reduce ansiedad (un número, no diez) y convierte el saldo en un permiso para gastar en vez de una amenaza.
+- **Psicología:** un número confiable reduce la ansiedad; un negativo falso enseña a ignorarlo.
 
 ### 4.2 Acciones núcleo (reemplaza los 8 accesos)
 - 3 botones: **Gasto**, **Factura** (abre la cámara directo al OCR) y **Transferir**.

@@ -11,10 +11,17 @@ private fun day(iso: String): LocalDate? = runCatching { LocalDate.parse(iso.tak
 
 // ------------------------------------------------------------------------------------------------ Disponible para gastar
 
-/** Saldo − pagos planificados de los próximos 30 días − aporte del mes comprometido a metas (en USD). */
-data class SafeToSpend(val balance: Double, val upcoming: List<Pair<ScheduledPayment, LocalDate>>, val upcomingUsd: Double,
-                       val goals: List<Pair<Goal, Double>>) {
-    val reserved get() = upcomingUsd + goals.sumOf { it.second }
+/**
+ * «Disponible para gastar», con reservas inteligentes (todo en USD):
+ * - [bills]: pagos planificados (gastos) que vencen antes del próximo ingreso planificado — o en 30 días si no hay ingreso
+ *   planificado —; son compromisos firmes.
+ * - [envelopes]: lo que le queda a cada sobre (presupuesto) este mes, sin contar dos veces lo que ya cubre un pago de esa
+ *   categoría. Es una reserva flexible: nunca lleva el disponible a negativo, solo usa el dinero libre ([capped] = no alcanzó).
+ * - Las metas NO se reservan: son ahorro opcional, se aporta cuando se quiere.
+ */
+data class SafeToSpend(val balance: Double, val upcoming: List<Pair<ScheduledPayment, LocalDate>>, val billsUsd: Double, val horizon: LocalDate,
+                       val payday: Boolean, val envelopes: List<Pair<Budget, Double>>, val envelopesUsd: Double, val capped: Boolean) {
+    val reserved get() = billsUsd + envelopesUsd
     val available get() = balance - reserved
 }
 
@@ -31,21 +38,23 @@ fun occurrences(s: ScheduledPayment, today: LocalDate, until: LocalDate): List<L
     return out
 }
 
-/** Aporte mensual que pide una meta para llegar a tiempo (lo que falta ÷ meses restantes, mínimo 1). */
-fun Goal.monthlyNeed(today: LocalDate): Double {
-    val left = targetAmount - savedAmount
-    if (completed || left <= 0) return 0.0
-    val end = day(deadline) ?: return 0.0
-    val months = ChronoUnit.MONTHS.between(today.withDayOfMonth(1), end.withDayOfMonth(1)).coerceAtLeast(0) + 1
-    return left / months
-}
-
 fun AppData.safeToSpend(today: LocalDate = LocalDate.now()): SafeToSpend {
-    val until = today.plusDays(30)
-    val up = scheduled.filter { it.type == TxType.EXPENSE }.flatMap { s -> occurrences(s, today, until).map { s to it } }.sortedBy { it.second }
-    val upUsd = up.sumOf { (s, _) -> rates.toUsd(s.amount, s.currency) }
-    val g = goals.map { it to it.monthlyNeed(today) }.filter { it.second > 0 }
-    return SafeToSpend(totalUsd(), up, upUsd, g)
+    // hasta el próximo ingreso planificado (cobro): lo que vence después se pagará con ese ingreso
+    val nextIncome = scheduled.filter { it.type == TxType.INCOME }.flatMap { occurrences(it, today.plusDays(1), today.plusDays(30)) }.minOrNull()
+    val horizon = nextIncome?.minusDays(1) ?: today.plusDays(30)
+    val up = scheduled.filter { it.type == TxType.EXPENSE }.flatMap { s -> occurrences(s, today, horizon).map { s to it } }.sortedBy { it.second }
+    val usd = { s: ScheduledPayment -> rates.toUsd(s.amount, s.currency) }
+    val bills = up.sumOf { usd(it.first) }
+    // sobres: lo que queda del mes, menos lo que ya reservan los pagos de esa misma categoría
+    val month = java.time.YearMonth.from(today)
+    val env = activeBudgets(month).filter { it.limit > 0 }.map { b ->
+        val left = (b.limit - spentUsd(b.categoryId, month)).coerceAtLeast(0.0)
+        val billsHere = up.filter { it.first.category == b.categoryId && java.time.YearMonth.from(it.second) == month }.sumOf { usd(it.first) }
+        b to (left - billsHere).coerceAtLeast(0.0)
+    }.filter { it.second > 0.005 }
+    val envTotal = env.sumOf { it.second }
+    val free = (totalUsd() - bills).coerceAtLeast(0.0)
+    return SafeToSpend(totalUsd(), up, bills, horizon, nextIncome != null, env, minOf(envTotal, free), envTotal > free + 0.005)
 }
 
 // ------------------------------------------------------------------------------------------------ Para hoy

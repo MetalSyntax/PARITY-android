@@ -243,14 +243,22 @@ private fun Breakdown(s: SafeToSpend, nav: Nav, onDismiss: () -> Unit) {
                 trailing = if (Prefs.balanceVisible) money(a.balance, a.currency) else HIDDEN, color = Bg)
         }
         Spacer(Modifier.height(10.dp))
-        SumLine(t("kt_reserved"), "− " + shown(s.reserved), Warning)
+        // pagos firmes hasta el próximo ingreso
+        SumLine(if (s.payday) t("kt_bills_until_payday", shortDate(s.horizon.plusDays(1).toString())) else t("kt_bills_30"), "− " + shown(s.billsUsd), Warning)
         s.upcoming.forEach { (p, date) ->
             ListRow(p.name, subtitle = shortDate(date.toString()), icon = Icons.Outlined.CalendarMonth, tint = Warning, trailing = money(p.amount, p.currency), color = Bg)
         }
-        s.goals.forEach { (g, m) ->
-            ListRow(g.name, subtitle = t("kt_goal_monthly"), icon = Icons.Outlined.EmojiEvents, tint = GOAL, trailing = shown(m), color = Bg)
+        if (s.upcoming.isEmpty()) Text(t("kt_no_bills"), style = MaterialTheme.typography.bodySmall, color = Muted)
+        Spacer(Modifier.height(10.dp))
+        // sobres: lo que queda de cada presupuesto este mes (reserva flexible)
+        SumLine(t("kt_envelopes_left"), "− " + shown(s.envelopesUsd), Brand)
+        s.envelopes.forEach { (b, left) ->
+            val c = category(b.categoryId)
+            ListRow(c.name, subtitle = t("kt_envelope_of", shown(b.limit)), icon = icon(c.icon), tint = catColor(c), trailing = shown(left), color = Bg)
         }
-        if (s.upcoming.isEmpty() && s.goals.isEmpty()) Text(t("kt_nothing_reserved"), style = MaterialTheme.typography.bodySmall, color = Muted)
+        if (s.envelopes.isEmpty()) Text(t("kt_no_envelopes"), style = MaterialTheme.typography.bodySmall, color = Muted)
+        if (s.capped) Text(t("kt_envelopes_capped"), Modifier.padding(top = 6.dp), style = MaterialTheme.typography.bodySmall, color = Warning)
+        Text(t("kt_goals_not_reserved"), Modifier.padding(top = 10.dp), style = MaterialTheme.typography.bodySmall, color = Muted)
         HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Glass)
         SumLine(t("kt_safe_to_spend"), shown(s.available), if (s.available < 0) Warning else Brand)
         Spacer(Modifier.height(14.dp))
