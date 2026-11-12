@@ -156,6 +156,25 @@ fun toast(ctx: Context, msg: String) = android.widget.Toast.makeText(ctx, msg, a
 
 // ================================================================================================ UI de la factura
 
+/** Primero se ve la versión digital; la foto original queda detrás de este botón (se despliega con animación). */
+@Composable
+fun PhotoToggle(img: ImageBitmap?) {
+    img ?: return
+    var open by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Bg)) {
+        Row(Modifier.fillMaxWidth().tap(onClick = { open = !open }).padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Image, null, tint = Brand, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(if (open) t("kt_hide_photo") else t("kt_show_photo"), Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = Brand)
+            Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, tint = Muted)
+        }
+        androidx.compose.animation.AnimatedVisibility(open) {
+            Image(img, t("receipt"), Modifier.fillMaxWidth().heightIn(max = 520.dp).padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
+                .clip(RoundedCornerShape(14.dp)).background(Color.Black), contentScale = ContentScale.Fit)
+        }
+    }
+}
+
 /** Aviso animado mientras el modelo lee la factura (barrido de un «láser» sobre un ticket). */
 @Composable
 fun ScanningBanner() {
@@ -222,7 +241,7 @@ fun ReceiptReview(scan: ScannedReceipt, currency: Currency, onRemove: (() -> Uni
     val img = remember(scan) { ReceiptOcr.decode(scan.dataUrl) }
     TitledSheet(inv0.merchant ?: t("receipt"), inv0.invoiceDate?.let(::shortDate) ?: t("kt_items_found", descs.size), onDismiss) {
         Spacer(Modifier.height(12.dp))
-        img?.let { Image(it, t("receipt"), Modifier.fillMaxWidth().height(140.dp).clip(RoundedCornerShape(18.dp)).background(Color.Black), contentScale = ContentScale.Crop) }
+        PhotoToggle(img)
         Spacer(Modifier.height(12.dp))
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Bg).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Field(merchant, { merchant = it }, t("kt_merchant"), container = Surface1)

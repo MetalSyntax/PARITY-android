@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Cartera (contorno redondeado + broche con su botón) y una «P» con el mismo trazo redondeado de las antiguas barras -->
+<!-- «P» hecha con la cartera: la cartera es el ojo de la P, le sale la línea vertical, adentro las dos barras originales (paridad) y el broche con su botón -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <path android:strokeColor="#FFFFFF" android:strokeWidth="6" android:pathData="M37,34h34a9,9 0,0 1,9 9v22a9,9 0,0 1,-9 9h-34a9,9 0,0 1,-9 -9v-22a9,9 0,0 1,9 -9z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M68,45h12a5,5 0,0 1,5 5v8a5,5 0,0 1,-5 5h-12a5,5 0,0 1,-5 -5v-8a5,5 0,0 1,5 -5z" />
-    <path android:fillColor="#6366F1" android:pathData="M74,54m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
-    <path android:strokeColor="#FFFFFF" android:strokeWidth="8" android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M42,66V44h6a6.5,6.5 0,0 1,0 13h-6" />
+    <group android:pivotX="59" android:pivotY="54.5" android:scaleX="0.86" android:scaleY="0.86" android:translateX="-5" android:translateY="-0.5">
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="6" android:pathData="M46,27h23a9,9 0,0 1,9 9v13a9,9 0,0 1,-9 9h-23a9,9 0,0 1,-9 -9v-13a9,9 0,0 1,9 -9z" />
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="6" android:strokeLineCap="round" android:pathData="M37,46V82" />
+    <path android:fillColor="#FFFFFF" android:pathData="M71,36h9a4,4 0,0 1,4 4v4a4,4 0,0 1,-4 4h-9a4,4 0,0 1,-4 -4v-4a4,4 0,0 1,4 -4z" />
+    <path android:fillColor="#6366F1" android:pathData="M76,42m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M48,35h12a3,3 0,0 1,3 3v0a3,3 0,0 1,-3 3h-12a3,3 0,0 1,-3 -3v0a3,3 0,0 1,3 -3z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M48,44h12a3,3 0,0 1,3 3v0a3,3 0,0 1,-3 3h-12a3,3 0,0 1,-3 -3v0a3,3 0,0 1,3 -3z" />
+    </group>
 </vector>

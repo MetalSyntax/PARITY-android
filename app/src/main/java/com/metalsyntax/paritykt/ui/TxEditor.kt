@@ -184,13 +184,8 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
                     PickChip(t("date"), if (date == LocalDate.now()) t("today") else date.format(DateTimeFormatter.ofPattern("d MMM", ES)),
                         { Bubble(Icons.Outlined.CalendarMonth, Brand, 40.dp) }) { pick = "date" }
                     if (receipt != null) {
-                        val thumb = remember(receipt) { ReceiptOcr.decode(receipt) }
-                        PickChip(t("receipt"), invoice?.let { t("kt_items_found", it.items.size) } ?: t("kt_attached"), {
-                            Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(Bg), contentAlignment = Alignment.Center) {
-                                thumb?.let { androidx.compose.foundation.Image(it, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop) }
-                                    ?: Icon(Icons.Outlined.Receipt, null, tint = Brand)
-                            }
-                        }) { review = ScannedReceipt(receipt!!, invoice ?: InvoiceData()) }
+                        PickChip(t("receipt"), invoice?.let { t("kt_items_found", it.items.size) } ?: t("kt_attached"),
+                            { Bubble(Icons.Outlined.Receipt, Brand, 40.dp) }) { review = ScannedReceipt(receipt!!, invoice ?: InvoiceData()) }
                     }
                     if (hasFee) PickChip(t("commissions"), if (feeTotal > 0) "${num(feeTotal)} ${currency.name}" else "—",
                         { Bubble(Icons.Outlined.Percent, Warning, 40.dp) }, selected = feeTotal > 0) { pick = "fee" }

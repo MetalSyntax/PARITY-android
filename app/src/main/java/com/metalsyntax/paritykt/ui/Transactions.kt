@@ -193,9 +193,10 @@ fun TxDetail(tx0: Transaction, onEdit: (Transaction) -> Unit, onClose: () -> Uni
             }
             if (receipt != null) Segmented(listOf(0 to t("summary"), 1 to t("receipt")), tab, icons = { if (it == 0) Icons.Outlined.Info else Icons.Outlined.Receipt }) { tab = it }
             if (tab == 1 && receipt != null) {
-                androidx.compose.foundation.Image(receipt, t("receipt"), Modifier.fillMaxWidth().heightIn(max = 480.dp).clip(RoundedCornerShape(18.dp)).background(Color.Black),
+                // versión digital primero; la foto solo al tocar «Ver foto original» (facturas de la web sin datos: foto directa)
+                if (invoice != null) { InvoiceLines(invoice, tx.originalCurrency); PhotoToggle(receipt) }
+                else androidx.compose.foundation.Image(receipt, t("receipt"), Modifier.fillMaxWidth().heightIn(max = 480.dp).clip(RoundedCornerShape(18.dp)).background(Color.Black),
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit)
-                invoice?.let { InvoiceLines(it, tx.originalCurrency) }
             } else Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Bg).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Caps(t("amount"))
