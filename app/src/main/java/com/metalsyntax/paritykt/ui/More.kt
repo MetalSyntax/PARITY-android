@@ -469,11 +469,22 @@ fun ProfileScreen(nav: Nav) {
                 SettingRow(t("btn_tutorials"), t("kt_tut_count", TUTORIALS.size), icon = Icons.Outlined.School, onClick = { tutorials = true }) { Chevron() }
             }
         }
-        item {
+        // métricas del A/B (solo modo Dev): tiempo de registro, facturas y constancia
+        if (Prefs.dev) item {
+            SettingsGroup(t("kt_ab_metrics"), Icons.Outlined.Insights, tint = Warning) {
+                val week = (0L..6L).count { n -> val day = java.time.LocalDate.now().minusDays(n).toString(); d.transactions.any { it.date.startsWith(day) } }
+                SettingRow(t("kt_ab_variant"), if (MODERN) "Parity Modern" else "Parity Legacy") {}
+                SettingRow(t("kt_ab_time"), Metrics.medianSeconds()?.let { "%.1f s · n=%d".format(it, Metrics.saves.size) } ?: "—") {}
+                SettingRow(t("kt_ab_receipts"), if (Metrics.total > 0) "%.0f%% (%d/%d)".format(Metrics.receipts * 100.0 / Metrics.total, Metrics.receipts, Metrics.total) else "—") {}
+                SettingRow(t("kt_ab_days"), "$week / 7") {}
+            }
+        }
+        // Modern tiene la barra fija (Inicio, Movimientos, Plan, Billeteras): no hay favoritos que elegir
+        if (!MODERN) item {
             SettingsGroup(t("navbarFavorites"), Icons.Outlined.Dashboard) {
                 Text("${Prefs.favorites.size} / 3", style = MaterialTheme.typography.labelMedium, color = Brand)
                 Spacer(Modifier.height(8.dp))
-                OptionGrid(Route.entries.filter { it != Route.HOME }, { it in Prefs.favorites }, color = { routeColor(it).copy(alpha = 0.25f) },
+                OptionGrid(Route.entries.filter { it != Route.HOME && it != Route.HUB }, { it in Prefs.favorites }, color = { routeColor(it).copy(alpha = 0.25f) },
                     enabled = { it in Prefs.favorites || Prefs.favorites.size < 3 },
                     onPick = { r -> Prefs.saveFavorites(if (r in Prefs.favorites) Prefs.favorites - r else Prefs.favorites + r) }) { r, on ->
                     Icon(routeIcon(r), null, tint = if (on) routeColor(r) else Muted.copy(alpha = 0.7f), modifier = Modifier.size(22.dp))

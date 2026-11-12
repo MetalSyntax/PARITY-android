@@ -44,19 +44,24 @@ import java.time.YearMonth
 
 /** Navegación compartida por todas las vistas. */
 class Nav(val go: (Route) -> Unit, val back: () -> Unit, val newTx: (TxType) -> Unit, val openTx: (Transaction) -> Unit,
-          val snack: (String) -> Unit, val settings: () -> Unit, val tutorial: (Tutorial) -> Unit)
+          val snack: (String) -> Unit, val settings: () -> Unit, val tutorial: (Tutorial) -> Unit,
+          val scan: () -> Unit = {}, val undo: (String, () -> Unit) -> Unit = { m, _ -> snack(m) })
+
+/** Vistas que en Modern cuelgan del centro «Plan». */
+val HUB_CHILDREN = setOf(Route.BUDGET, Route.GOALS, Route.PLAN, Route.SHOPPING, Route.ANALYSIS)
 
 fun routeIcon(r: Route): ImageVector = when (r) {
     Route.HOME -> Icons.Outlined.Home; Route.TX -> Icons.Outlined.ReceiptLong; Route.ANALYSIS -> Icons.Outlined.Insights
     Route.BUDGET -> Icons.Outlined.PieChart; Route.GOALS -> Icons.Outlined.EmojiEvents; Route.WALLETS -> Icons.Outlined.AccountBalanceWallet
     Route.PLAN -> Icons.Outlined.CalendarMonth; Route.SHOPPING -> Icons.Outlined.ShoppingCart; Route.PROFILE -> Icons.Outlined.Person
+    Route.HUB -> Icons.Outlined.Explore
 }
 
 /** Color de cada acción rápida (ALL_QUICK_ACTIONS de Dashboard.tsx). */
 fun routeColor(r: Route): Color = when (r) {
     Route.TX -> Color(0xFF34D399); Route.BUDGET -> Color(0xFF60A5FA); Route.PLAN -> Color(0xFFFB923C); Route.ANALYSIS -> Color(0xFFC084FC)
     Route.WALLETS -> Color(0xFF818CF8); Route.GOALS -> Color(0xFFEAB308); Route.SHOPPING -> Color(0xFFF59E0B); Route.PROFILE -> Color(0xFFA1A1AA)
-    Route.HOME -> Brand
+    Route.HOME, Route.HUB -> Brand
 }
 
 fun widgetIcon(w: Widget): ImageVector = when (w) {
@@ -73,75 +78,81 @@ fun pct(v: Double, total: Double) = if (total > 0) "${"%.0f".format(v / total * 
 
 @Composable
 fun HomeScreen(nav: Nav) {
+    if (MODERN) { ModernHome(nav); return }
     val d = Store.data
     val month = d.monthTx()
     LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp)) {
         item { HomeHeader(d, nav) }
         Prefs.widgets.filter { it !in Prefs.hidden }.forEach { w ->
-            when (w) {
-                Widget.QUICK -> item(key = w) { QuickActions(nav) }
-                Widget.BALANCE -> item(key = w) { Spacer(Modifier.height(8.dp)); BalanceCard(d) }
-                Widget.CONVERTER -> item(key = w) { Spacer(Modifier.height(16.dp)); Converter(d.rates) }
-                Widget.WALLETS -> item(key = w) {
-                    if (d.accounts.isEmpty()) Empty(Icons.Outlined.AccountBalanceWallet, t("kt_start_wallet"), t("kt_start_wallet_desc"), t("kt_create_wallet")) { nav.go(Route.WALLETS) }
-                    else {
-                        Section(t("wallet"), t("slide_hint")) { nav.go(Route.WALLETS) }
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            d.accounts.forEach { a -> WalletMini(a) { nav.go(Route.WALLETS) } }
-                        }
-                    }
-                }
-                Widget.EXPENSES -> month.filter { it.type == TxType.EXPENSE }.takeIf { it.isNotEmpty() }?.let { ex -> item(key = w) { ExpenseStructure(ex) { nav.go(Route.ANALYSIS) } } }
-                Widget.INCOME_EXPENSE -> item(key = w) {
-                    Section(t("incomeVsExpenses"))
-                    GlassCard(Modifier.fillMaxWidth(), onClick = { nav.go(Route.ANALYSIS) }) { Column(Modifier.padding(16.dp)) { IncomeExpenseBars(d.monthlyTotals(YearMonth.now())) } }
-                }
-                Widget.UPCOMING -> {
-                    val up = d.scheduled.filter { runCatching { !LocalDate.parse(it.date).isAfter(LocalDate.now().plusDays(7)) }.getOrDefault(false) }.sortedBy { it.date }
-                    if (up.isNotEmpty()) {
-                        item(key = w) { Section(t("kt_next_7_days"), t("kt_see_all")) { nav.go(Route.PLAN) } }
-                        items(up.take(3), key = { "s" + it.id }) { s -> ScheduledRow(s, nav) }
-                    }
-                }
-                Widget.BUDGET -> d.activeBudgets().takeIf { it.isNotEmpty() }?.let { budgets ->
-                    item(key = w) {
-                        Section(t("budget"), t("kt_see_all")) { nav.go(Route.BUDGET) }
-                        GlassCard(Modifier.fillMaxWidth(), onClick = { nav.go(Route.BUDGET) }) {
-                            Column(Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) {
-                                budgets.sortedByDescending { d.spentUsd(it.categoryId) / it.limit }.take(3).forEach { b ->
-                                    val spent = d.spentUsd(b.categoryId); val c = category(b.categoryId)
-                                    Progress(c.name, spent, b.limit, "${money(spent)} / ${money(b.limit)}", catColor(c))
-                                }
-                            }
-                        }
-                    }
-                }
-                Widget.GOALS -> d.goals.filter { !it.completed }.takeIf { it.isNotEmpty() }?.let { goals ->
-                    item(key = w) {
-                        Section(t("goals"), t("kt_see_all"), Icons.Outlined.EmojiEvents, GOAL) { nav.go(Route.GOALS) }
-                        GlassCard(Modifier.fillMaxWidth(), onClick = { nav.go(Route.GOALS) }) {
-                            Column(Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) {
-                                goals.take(3).forEach { g -> Progress(g.name, g.savedAmount, g.targetAmount, "${money(g.targetAmount)} · ${pct(g.savedAmount, g.targetAmount)}", GOAL) }
-                            }
-                        }
-                    }
-                }
-                Widget.RECENT -> {
-                    item(key = w) {
-                        Row(Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 10.dp, start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(t("recentTransactions").uppercase(ES), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = Muted, letterSpacing = 1.sp)
-                            GhostButton(t("filter"), Icons.Outlined.Tune) { nav.go(Route.TX) }
-                        }
-                        if (d.transactions.isEmpty()) EmptyNote(t("noTransactions"))
-                    }
-                    d.transactions.sortedByDescending { it.date }.take(Prefs.txLimit).groupBy { it.date.take(10) }.forEach { (day, txs) ->
-                        item(key = "h$day") { Text(dayLabel(day), Modifier.padding(start = 4.dp, top = 6.dp, bottom = 4.dp), style = MaterialTheme.typography.titleSmall, color = Muted) }
-                        items(txs, key = { it.id }) { TxRow(it, nav.openTx) }
+            homeWidget(w, d, nav, month)
+        }
+    }
+}
+
+/** Un widget del Inicio (Legacy los muestra todos; Modern solo los extras que se activen en Personalizar inicio). */
+fun androidx.compose.foundation.lazy.LazyListScope.homeWidget(w: Widget, d: AppData, nav: Nav, month: List<Transaction>) {
+        when (w) {
+            Widget.QUICK -> item(key = w) { QuickActions(nav) }
+            Widget.BALANCE -> item(key = w) { Spacer(Modifier.height(8.dp)); BalanceCard(d) }
+            Widget.CONVERTER -> item(key = w) { Spacer(Modifier.height(16.dp)); Converter(d.rates) }
+            Widget.WALLETS -> item(key = w) {
+                if (d.accounts.isEmpty()) Empty(Icons.Outlined.AccountBalanceWallet, t("kt_start_wallet"), t("kt_start_wallet_desc"), t("kt_create_wallet")) { nav.go(Route.WALLETS) }
+                else {
+                    Section(t("wallet"), t("slide_hint")) { nav.go(Route.WALLETS) }
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        d.accounts.forEach { a -> WalletMini(a) { nav.go(Route.WALLETS) } }
                     }
                 }
             }
+            Widget.EXPENSES -> month.filter { it.type == TxType.EXPENSE }.takeIf { it.isNotEmpty() }?.let { ex -> item(key = w) { ExpenseStructure(ex) { nav.go(Route.ANALYSIS) } } }
+            Widget.INCOME_EXPENSE -> item(key = w) {
+                Section(t("incomeVsExpenses"))
+                GlassCard(Modifier.fillMaxWidth(), onClick = { nav.go(Route.ANALYSIS) }) { Column(Modifier.padding(16.dp)) { IncomeExpenseBars(d.monthlyTotals(YearMonth.now())) } }
+            }
+            Widget.UPCOMING -> {
+                val up = d.scheduled.filter { runCatching { !LocalDate.parse(it.date).isAfter(LocalDate.now().plusDays(7)) }.getOrDefault(false) }.sortedBy { it.date }
+                if (up.isNotEmpty()) {
+                    item(key = w) { Section(t("kt_next_7_days"), t("kt_see_all")) { nav.go(Route.PLAN) } }
+                    items(up.take(3), key = { "s" + it.id }) { s -> ScheduledRow(s, nav) }
+                }
+            }
+            Widget.BUDGET -> d.activeBudgets().takeIf { it.isNotEmpty() }?.let { budgets ->
+                item(key = w) {
+                    Section(t("budget"), t("kt_see_all")) { nav.go(Route.BUDGET) }
+                    GlassCard(Modifier.fillMaxWidth(), onClick = { nav.go(Route.BUDGET) }) {
+                        Column(Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) {
+                            budgets.sortedByDescending { d.spentUsd(it.categoryId) / it.limit }.take(3).forEach { b ->
+                                val spent = d.spentUsd(b.categoryId); val c = category(b.categoryId)
+                                Progress(c.name, spent, b.limit, "${money(spent)} / ${money(b.limit)}", catColor(c))
+                            }
+                        }
+                    }
+                }
+            }
+            Widget.GOALS -> d.goals.filter { !it.completed }.takeIf { it.isNotEmpty() }?.let { goals ->
+                item(key = w) {
+                    Section(t("goals"), t("kt_see_all"), Icons.Outlined.EmojiEvents, GOAL) { nav.go(Route.GOALS) }
+                    GlassCard(Modifier.fillMaxWidth(), onClick = { nav.go(Route.GOALS) }) {
+                        Column(Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) {
+                            goals.take(3).forEach { g -> Progress(g.name, g.savedAmount, g.targetAmount, "${money(g.targetAmount)} · ${pct(g.savedAmount, g.targetAmount)}", GOAL) }
+                        }
+                    }
+                }
+            }
+            Widget.RECENT -> {
+                item(key = w) {
+                    Row(Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 10.dp, start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(t("recentTransactions").uppercase(ES), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = Muted, letterSpacing = 1.sp)
+                        GhostButton(t("filter"), Icons.Outlined.Tune) { nav.go(Route.TX) }
+                    }
+                    if (d.transactions.isEmpty()) EmptyNote(t("noTransactions"))
+                }
+                d.transactions.sortedByDescending { it.date }.take(Prefs.txLimit).groupBy { it.date.take(10) }.forEach { (day, txs) ->
+                    item(key = "h$day") { Text(dayLabel(day), Modifier.padding(start = 4.dp, top = 6.dp, bottom = 4.dp), style = MaterialTheme.typography.titleSmall, color = Muted) }
+                    items(txs, key = { it.id }) { TxRow(it, nav.openTx) }
+                }
+            }
         }
-    }
 }
 
 /** Actualizar tasas (botón de las tasas del Inicio y Ajustes); sin red avisa con calma y deja todo como está. */
@@ -211,7 +222,7 @@ private fun HomeHeader(d: AppData, nav: Nav) {
 
 /** Valor de la tasa que sube al cambiar (micro-interacción al actualizar). */
 @Composable
-private fun RateTicker(text: String, color: Color) = androidx.compose.animation.AnimatedContent(text, label = "rate", transitionSpec = {
+fun RateTicker(text: String, color: Color) = androidx.compose.animation.AnimatedContent(text, label = "rate", transitionSpec = {
     (androidx.compose.animation.slideInVertically { it } + androidx.compose.animation.fadeIn()) togetherWith
         (androidx.compose.animation.slideOutVertically { -it } + androidx.compose.animation.fadeOut())
 }) { Text(it, color = color, style = MaterialTheme.typography.labelMedium) }
@@ -245,7 +256,7 @@ private fun QuickActions(nav: Nav) {
 }
 
 /** Balance de los últimos 30 días hacia atrás desde el total actual (para la línea de tendencia). */
-private fun balanceHistory(d: AppData, days: Int = 30): List<Double> {
+fun balanceHistory(d: AppData, days: Int = 30): List<Double> {
     val net = d.transactions.groupBy { it.date.take(10) }.mapValues { (_, l) ->
         l.sumOf { when (it.type) { TxType.INCOME -> it.normalizedAmountUSD; TxType.EXPENSE -> -it.normalizedAmountUSD; else -> 0.0 } }
     }
@@ -304,7 +315,7 @@ private fun BalanceCard(d: AppData) {
 
 /** Conversor de moneda de la web (CurrencyConverter.tsx): vía bolívares, con la tasa en uso. */
 @Composable
-private fun Converter(r: Rates) {
+fun Converter(r: Rates) {
     var amount by remember { mutableStateOf("") }
     var from by remember { mutableStateOf(Currency.USD) }
     var to by remember { mutableStateOf(Currency.VES) }
@@ -409,14 +420,14 @@ fun CustomizerSheet(onDismiss: () -> Unit) {
                 Column(Modifier.weight(1f)) { Text(t("kt_customize_dashboard"), style = MaterialTheme.typography.headlineSmall, color = Ink); Caps(t("layoutControl")) }
                 RoundIcon(Icons.Outlined.Close, t("close"), onDismiss, tint = Muted, size = 40.dp, bg = Bg)
             }
-            Section(t("widgets"))
-            Prefs.widgets.forEach { w -> key("w" + w.name) {
+            Section(if (MODERN) t("kt_more_on_home") else t("widgets"))
+            Prefs.widgets.filter { !MODERN || it in MODERN_EXTRAS }.forEach { w -> key("w" + w.name) {
                 ListRow(t(w.key), Modifier.reorderItem(st, "w" + w.name), icon = widgetIcon(w), color = Bg, handle = { DragHandle(st, "w" + w.name, wKeys) },
                     trailingSlot = { Toggle(w !in Prefs.hidden) { Prefs.toggleWidget(w) } })
             } }
             // no se desmarcan: cada casilla se cambia por otra acción, así la fila del Inicio nunca queda con huecos
-            Section(t("quickActions"), t("kt_tap_to_change"))
-            Prefs.quick.forEach { r -> key("q" + r.name) {
+            if (!MODERN) Section(t("quickActions"), t("kt_tap_to_change"))
+            if (!MODERN) Prefs.quick.forEach { r -> key("q" + r.name) {
                 ListRow(t(r.key), Modifier.reorderItem(st, "q" + r.name), icon = routeIcon(r), tint = routeColor(r), color = Bg,
                     handle = { DragHandle(st, "q" + r.name, Prefs.quick.map { "q" + it.name }.toSet()) },
                     trailingSlot = { Icon(Icons.Outlined.SwapHoriz, t("kt_change"), tint = Muted) }) { replacing = r }

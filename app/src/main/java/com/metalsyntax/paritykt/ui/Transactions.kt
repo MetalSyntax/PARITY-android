@@ -31,7 +31,8 @@ fun TxRow(tx: Transaction, onOpen: (Transaction) -> Unit) {
     val d = Store.data
     val c = category(tx.category)
     val transfer = tx.type == TxType.TRANSFER
-    val color = when (tx.type) { TxType.EXPENSE -> Expense; TxType.INCOME -> Income; else -> Ink }
+    // Modern: el rojo se reserva para lo que pide acción; un gasto normal va en el color de texto
+    val color = when (tx.type) { TxType.EXPENSE -> if (MODERN) Ink else Expense; TxType.INCOME -> Income; else -> Ink }
     val sign = when (tx.type) { TxType.EXPENSE -> "-"; TxType.INCOME -> "+"; else -> "" }
     val title = if (transfer) "${d.account(tx.accountId)?.name ?: "?"} → ${d.account(tx.toAccountId)?.name ?: "?"}" else tx.note.ifBlank { c.name }
     val date = runCatching { LocalDate.parse(tx.date.take(10)).format(DateTimeFormatter.ofPattern("d/M/yyyy")) }.getOrDefault("")
@@ -100,7 +101,7 @@ fun TransactionsScreen(nav: Nav) {
                 Text(dayLabel(day).uppercase(ES), Modifier.padding(start = 20.dp, top = 16.dp, bottom = 4.dp), style = MaterialTheme.typography.titleSmall,
                     color = Muted, letterSpacing = 2.sp)
             }
-            items(txs, key = { it.id }) { Box(Modifier.padding(horizontal = 16.dp)) { TxRow(it, nav.openTx) } }
+            items(txs, key = { it.id }) { Box(Modifier.padding(horizontal = 16.dp)) { if (MODERN) SwipeTx(it, nav) else TxRow(it, nav.openTx) } }
         }
     }
 }

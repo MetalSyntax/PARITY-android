@@ -27,8 +27,14 @@ val ACCENTS = listOf(0xFF4F46E5, 0xFF7C3AED, 0xFF9333EA, 0xFFC026D3, 0xFFDB2777,
 enum class Route(val key: String, val webId: String) {
     HOME("dashboard", "DASHBOARD"), TX("transactions", "TRANSACTIONS"), ANALYSIS("analysis", "ANALYSIS"), BUDGET("budget", "BUDGET"),
     GOALS("goals", "GOALS"), WALLETS("wallet", "WALLET"), PLAN("scheduled", "SCHEDULED"), SHOPPING("shoppingList", "SHOPPING_LIST"),
-    PROFILE("profile", "PROFILE"),
+    PROFILE("profile", "PROFILE"), HUB("kt_plan_hub", "PLAN_HUB"), // HUB: centro «Plan» de Parity Modern
 }
+
+/** Variante del A/B (flavor): Parity Modern = rediseño de docs/REDISENO_DASHBOARD.md. */
+val MODERN = com.metalsyntax.paritykt.BuildConfig.MODERN
+
+/** En Modern el Inicio ya trae saldo, acciones, «Para hoy» y recientes; estos widgets son extras opcionales (apagados por defecto). */
+val MODERN_EXTRAS = listOf(Widget.CONVERTER, Widget.WALLETS, Widget.EXPENSES, Widget.INCOME_EXPENSE, Widget.BUDGET, Widget.GOALS)
 
 /** Widgets del Inicio que se pueden ocultar y reordenar (Personalizar Dashboard de la web). */
 enum class Widget(val key: String, val on: Boolean = true) {
@@ -47,7 +53,7 @@ object Prefs {
     var balanceVisible by mutableStateOf(true); private set
     var display by mutableStateOf(Currency.USD); private set
     var widgets by mutableStateOf(Widget.entries.toList()); private set       // orden
-    var hidden by mutableStateOf(Widget.entries.filter { !it.on }.toSet()); private set
+    var hidden by mutableStateOf(Widget.entries.filter { !it.on || (MODERN && it in MODERN_EXTRAS) }.toSet()); private set
     var quick by mutableStateOf(QUICK_DEFAULT); private set                    // acciones rápidas, en orden
     var hideWelcome by mutableStateOf(false); private set
     var hideName by mutableStateOf(false); private set
@@ -148,4 +154,33 @@ fun ParityTheme(content: @Composable () -> Unit) {
     val shapes = Shapes(small = androidx.compose.foundation.shape.RoundedCornerShape(12.dp), medium = r, large = r,
         extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(28.dp))
     MaterialTheme(colorScheme = scheme, typography = type, shapes = shapes, content = content)
+}
+
+
+/**
+ * Métricas locales del A/B (docs/REDISENO_DASHBOARD.md §10), iguales en Legacy y Modern para comparar:
+ * tiempo de registro (abrir el editor → guardar), % de transacciones con factura y días con registro. Nunca salen del teléfono.
+ */
+object Metrics {
+    private lateinit var sp: android.content.SharedPreferences
+    var noSpend by mutableStateOf(emptySet<String>()); private set   // días marcados «hoy no gasté» (racha)
+    var saves by mutableStateOf(emptyList<Long>()); private set        // últimas 50 duraciones en ms
+    var receipts by mutableIntStateOf(0); private set
+    var total by mutableIntStateOf(0); private set
+
+    fun init(ctx: Context) {
+        sp = ctx.getSharedPreferences("metrics", Context.MODE_PRIVATE)
+        noSpend = sp.getStringSet("noSpend", emptySet())!!.toSet()
+        saves = sp.getString("saves", "")!!.split(',').mapNotNull { it.toLongOrNull() }
+        receipts = sp.getInt("receipts", 0); total = sp.getInt("total", 0)
+    }
+
+    fun recordSave(ms: Long, withReceipt: Boolean) {
+        saves = (saves + ms).takeLast(50); total++; if (withReceipt) receipts++
+        sp.edit().putString("saves", saves.joinToString(",")).putInt("total", total).putInt("receipts", receipts).apply()
+    }
+
+    fun markNoSpend(day: String) { noSpend = (noSpend + day).sorted().takeLast(400).toSet(); sp.edit().putStringSet("noSpend", noSpend).apply() }
+
+    fun medianSeconds(): Double? = saves.sorted().takeIf { it.isNotEmpty() }?.let { it[it.size / 2] / 1000.0 }
 }

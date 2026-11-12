@@ -11,8 +11,26 @@ android {
         applicationId = "com.metalsyntax.paritykt" // distinto de la Parity actual: conviven en el teléfono
         minSdk = 26
         targetSdk = 34
-        versionCode = 8
-        versionName = "0.5.2"
+        versionCode = 9
+        versionName = "0.6.0"
+    }
+
+    // A/B: Legacy = la app parecida a la web (mismo paquete, se actualiza sin perder datos);
+    // Modern = el rediseño de docs/REDISENO_DASHBOARD.md, paquete aparte para instalarlas lado a lado
+    flavorDimensions += "variant"
+    productFlavors {
+        create("legacy") {
+            dimension = "variant"
+            resValue("string", "app_name", "Parity Legacy")
+            buildConfigField("boolean", "MODERN", "false")
+        }
+        create("modern") {
+            dimension = "variant"
+            applicationIdSuffix = ".modern"
+            versionNameSuffix = "-modern"
+            resValue("string", "app_name", "Parity Modern")
+            buildConfigField("boolean", "MODERN", "true")
+        }
     }
 
     buildTypes {

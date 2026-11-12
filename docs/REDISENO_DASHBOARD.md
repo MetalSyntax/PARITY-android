@@ -1,7 +1,10 @@
 # Rediseño del Inicio (Dashboard) de Parity
 
 > Análisis desde UX/UI y psicología del comportamiento financiero. Objetivo: que abrir Parity se sienta **calmado, rápido y útil**, no como revisar un extracto bancario.
-> Estado: propuesta (2026-11-11). Lo marcado ✅ ya está implementado en la v0.5.0.
+> Estado (2026-11-11, v0.6.0): **implementado como A/B**. ✅ = ya está en la app.
+> - **Parity Legacy** (`legacy`, paquete `com.metalsyntax.paritykt`): la app parecida a la web.
+> - **Parity Modern** (`modern`, paquete `com.metalsyntax.paritykt.modern`): este rediseño, en toda la app.
+> Ver §11 para compilar, instalar y comparar.
 
 ---
 
@@ -193,3 +196,43 @@ Reglas simples, sin IA ni red, ordenadas por urgencia; máximo 3:
 - **% de transacciones con factura** (adopción del OCR).
 
 Contadores guardados en `SharedPreferences`, visibles en modo Dev.
+
+---
+
+## 11. A/B: Parity Legacy vs Parity Modern
+
+Ambas versiones salen del mismo código (product flavors en `app/build.gradle.kts`; `BuildConfig.MODERN` / `MODERN` en `ui/Theme.kt`).
+
+| | Legacy | Modern |
+|---|---|---|
+| Inicio | Widgets como la web (accesos rápidos, saldo, conversor, gráficos…) | ✅ Héroe «Disponible para gastar» + desglose, 3 acciones (Gasto / Factura / Transferir), ✅ «Para hoy» (máx. 3), ✅ 5 recientes deslizables; extras opcionales en *Personalizar inicio* (apagados por defecto) |
+| Navegación | Inicio + 3 favoritos | ✅ Fija: Inicio · Movimientos · + · **Plan** · Billeteras; Perfil desde el avatar |
+| Plan | Vistas sueltas | ✅ Centro «Plan»: presupuesto, metas, pagos, compras y análisis con su resumen; «atrás» vuelve a Plan |
+| Movimientos | Toque = detalle | ✅ Deslizar ← borra (Deshacer), → duplica para hoy (Deshacer); gastos en color neutro |
+| Registro | Teclado, factura, dictado como nota | ✅ «Factura» abre la cámara directo; ✅ plantillas de gastos frecuentes; ✅ dictado interpretado («20 dólares de comida ayer»); ✅ categoría sugerida por nota/comercio |
+| Motivación | — | ✅ Racha de días registrando (+ «hoy no gasté»), ✅ resumen semanal, ✅ confeti al lograr una meta |
+| Tasas | Tocar = actualizar | Tocar = actualizar, mantener = conversor |
+
+Reglas en `data/Insights.kt` (con pruebas en `InsightsTest.kt`), interfaz en `ui/Modern.kt`.
+
+### Compilar e instalar
+
+```bash
+gradle assembleLegacyRelease assembleModernRelease
+adb install -r app/build/outputs/apk/legacy/release/app-legacy-release.apk   # reemplaza la app actual, conserva los datos
+adb install -r app/build/outputs/apk/modern/release/app-modern-release.apk   # app nueva al lado (empieza vacía)
+```
+
+Modern es otro paquete, así que empieza sin datos: en Legacy *Perfil → Exportar respaldo* y en Modern *Perfil → Importar respaldo*.
+Google Drive en Modern necesita registrar su paquete (`com.metalsyntax.paritykt.modern` + SHA-1) en el proyecto de Google Cloud.
+
+### Comparar
+
+Activa el modo Dev en cada una (7 toques en la versión) y mira *Perfil → Métricas A/B*: tiempo de registro (mediana),
+% de transacciones con factura y días con registro de los últimos 7. Usa cada versión una semana con el mismo tipo de gastos.
+
+### Pendiente
+
+- Sacudida sutil al pasar un presupuesto (§6).
+- Recap semanal como notificación local (hoy es una tarjeta de «Para hoy»).
+- Presets «Minimal» / «Completo» en *Personalizar inicio* (hoy: interruptores por extra).

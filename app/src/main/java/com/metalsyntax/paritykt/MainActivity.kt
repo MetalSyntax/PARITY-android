@@ -40,6 +40,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Prefs.init(this)
+        Metrics.init(this)
         Pin.init(this)
         I18n.load(this)
         // cada cambio reescribe la copia automática (si hay carpeta), agrupando ráfagas de cambios
@@ -89,15 +90,27 @@ private fun App(start: Route) {
     val editing = editingId?.let { id -> Store.data.transactions.firstOrNull { it.id == id } }
     var detail by remember { mutableStateOf<Transaction?>(null) } // tocar una transacción abre la vista detallada, no el editor
     var newType by rememberSaveable { mutableStateOf<TxType?>(null) }
+    var scanNew by rememberSaveable { mutableStateOf(false) } // Modern: «Factura» abre el editor directo en la cámara
     var settings by remember { mutableStateOf(false) }
     var tutorial by remember { mutableStateOf<Tutorial?>(null) }
     var tStep by remember { mutableIntStateOf(0) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    BackHandler(enabled = route != Route.HOME) { route = Route.HOME }
+    // Modern: presupuesto, metas, pagos, compras y análisis viven dentro de «Plan»; atrás vuelve ahí
+    fun up() = if (MODERN && route in HUB_CHILDREN) Route.HUB else Route.HOME
+    BackHandler(enabled = route != Route.HOME) { route = up() }
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    LaunchedEffect(Unit) {
+        if (MODERN) Store.onGoalReached = { g -> Celebrate.goal = g.name; haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress) }
+    }
     val nav = remember {
-        Nav(go = { route = it }, back = { route = Route.HOME }, newTx = { newType = it }, openTx = { detail = it },
+        Nav(go = { route = it }, back = { route = up() }, newTx = { newType = it }, openTx = { detail = it },
             snack = { m -> scope.launch { snackbar.showSnackbar(m) } }, settings = { settings = true },
+            scan = { scanNew = true; newType = TxType.EXPENSE },
+            undo = { m, action -> scope.launch {
+                snackbar.currentSnackbarData?.dismiss()
+                if (snackbar.showSnackbar(m, t("kt_undo"), duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) action()
+            } },
             tutorial = { tu -> tutorial = tu; tStep = 0; tu.steps.first()?.let { route = it } })
     }
 
@@ -121,6 +134,7 @@ private fun App(start: Route) {
                 Route.PLAN -> ScheduledScreen(nav)
                 Route.SHOPPING -> ShoppingScreen(nav)
                 Route.PROFILE -> ProfileScreen(nav)
+                Route.HUB -> PlanHub(nav)
             }
         }
     }
@@ -130,14 +144,16 @@ private fun App(start: Route) {
         }, onClose = { tutorial = null })
     }
     detail?.let { tx -> TxDetail(tx, onEdit = { detail = null; editingId = it.id }, onClose = { detail = null }) }
-    if (editing != null || newType != null) TxEditor(editing, newType ?: TxType.EXPENSE) { editingId = null; newType = null }
+    if (editing != null || newType != null) TxEditor(editing, newType ?: TxType.EXPENSE, autoScan = scanNew) { editingId = null; newType = null; scanNew = false }
+    if (MODERN) Confetti()
     if (settings) SettingsSheet(nav) { settings = false }
 }
 
 /** Barra inferior de la web: Inicio + 3 favoritos, con el botón + central elevado. */
 @Composable
 private fun BottomBar(route: Route, go: (Route) -> Unit, onAdd: () -> Unit) {
-    val items = listOf(Route.HOME) + Prefs.favorites.filter { it != Route.HOME }.take(3)
+    // Modern: navegación fija y simple (sin favoritos); Legacy: Inicio + 3 favoritos como la web
+    val items = if (MODERN) listOf(Route.HOME, Route.TX, Route.HUB, Route.WALLETS) else listOf(Route.HOME) + Prefs.favorites.filter { it != Route.HOME }.take(3)
     // un solo tamaño de letra para toda la barra: baja hasta que la etiqueta más larga entre sin partirse
     var scale by remember(items) { mutableFloatStateOf(1f) }
     Box(Modifier.fillMaxWidth()) {
@@ -145,7 +161,7 @@ private fun BottomBar(route: Route, go: (Route) -> Unit, onAdd: () -> Unit) {
             Row(Modifier.fillMaxWidth().navigationBarsPadding().height(64.dp)) {
                 items.forEachIndexed { i, r ->
                     if (i == 2) Spacer(Modifier.width(76.dp))
-                    NavItem(r, route == r, Modifier.weight(1f), scale, onOverflow = { if (scale > 0.6f) scale *= 0.94f }) { go(r) }
+                    NavItem(r, route == r || (MODERN && r == Route.HUB && route in HUB_CHILDREN), Modifier.weight(1f), scale, onOverflow = { if (scale > 0.6f) scale *= 0.94f }) { go(r) }
                 }
                 if (items.size < 3) Spacer(Modifier.width(76.dp).weight(1f))
             }

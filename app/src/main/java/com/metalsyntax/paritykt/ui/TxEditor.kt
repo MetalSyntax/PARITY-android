@@ -43,7 +43,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
+fun TxEditor(initial: Transaction?, type0: TxType, autoScan: Boolean = false, onDone: () -> Unit) {
     val d = Store.data
     if (d.accounts.isEmpty()) {
         Confirm(t("kt_first_wallet"), t("kt_first_wallet_desc"), t("done"), onDismiss = onDone, onConfirm = onDone)
@@ -70,9 +70,26 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
     var attachMenu by remember { mutableStateOf(false) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-    val actions = rememberReceiptActions(onDictated = { s -> note = (note.trim() + " " + s).trim() }) { r ->
+    var catTouched by rememberSaveable { mutableStateOf(initial != null) } // la categoría elegida a mano no se sugiere encima
+    val opened = remember { System.currentTimeMillis() }                  // métrica A/B: tiempo hasta guardar
+    val actions = rememberReceiptActions(onDictated = { s ->
+        if (MODERN) {
+            // Modern interpreta el dictado: «20 dólares de comida ayer» → monto, moneda, categoría, fecha y nota
+            val p = VoiceParse.parse(s)
+            p.amount?.let { if (amount.isEmpty()) amount = trimNum(it) }
+            p.currency?.let { currency = it }
+            p.category?.takeIf { type == TxType.EXPENSE }?.let { cat = it; catTouched = true }
+            p.date?.let { date = it }
+            note = (note.trim() + " " + p.note).trim()
+        } else note = (note.trim() + " " + s).trim()
+    }) { r ->
         if (r == null) toast(ctx, t("kt_scan_failed")) else review = r
     }
+    // Modern: «Factura» del Inicio abre directo la cámara (una sola vez, aunque Android recree la pantalla)
+    var autoDone by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) { if (autoScan && !autoDone) { autoDone = true; actions.camera() } }
+    // Modern: categoría sugerida por la nota o el comercio de compras anteriores
+    LaunchedEffect(note) { if (MODERN && !catTouched && type == TxType.EXPENSE) d.suggestCategory(note)?.let { cat = it } }
 
     val value = if (Calc.isExpression(amount)) Calc.eval(amount) else parseAmount(amount)
     val feeTotal = (parseAmount(fee) ?: 0.0) + (value ?: 0.0) * (parseAmount(percent) ?: 0.0) / 100
@@ -89,6 +106,7 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
     fun save() {
         val v = value ?: return
         val time = if (initial != null && initial.date.take(10) == date.toString()) initial.date else LocalDateTime.of(date, java.time.LocalTime.now().withNano(0)).toString()
+        if (initial == null) Metrics.recordSave(System.currentTimeMillis() - opened, receipt != null)
         Store.saveTx((initial ?: Transaction(amount = 0.0, originalCurrency = currency, exchangeRate = 0.0, normalizedAmountUSD = 0.0, type = type,
             category = cat, accountId = accountId, date = time)).copy(
             amount = v, originalCurrency = currency, type = type, accountId = accountId, date = time, note = note.trim(),
@@ -147,6 +165,24 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
                         val on = c == currency
                         Text(c.name, Modifier.clip(CircleShape).background(if (on) Brand else Color.Transparent).tap(onClick = { currency = c }).padding(horizontal = 14.dp, vertical = 7.dp),
                             style = MaterialTheme.typography.labelMedium, color = if (on) Color.White else Muted)
+                    }
+                }
+                // Modern: gastos frecuentes a un toque (plantillas)
+                if (MODERN && initial == null && amount.isEmpty() && type == TxType.EXPENSE) {
+                    val tpl = remember(d.transactions) { d.templates() }
+                    if (tpl.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(bottom = 10.dp).horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        tpl.forEach { tp ->
+                            val c = category(tp.category)
+                            Row(Modifier.tap(onClick = {
+                                amount = trimNum(tp.amount); currency = tp.currency; cat = tp.category; catTouched = true; note = tp.note
+                                if (d.account(tp.accountId) != null) accountId = tp.accountId
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            }).clip(CircleShape).background(Surface1).padding(start = 6.dp, end = 14.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Bubble(icon(c.icon), catColor(c), 28.dp); Spacer(Modifier.width(8.dp))
+                                Text("${tp.note} · ${num(tp.amount)}", style = MaterialTheme.typography.labelMedium, color = Ink, maxLines = 1)
+                            }
+                        }
                     }
                 }
                 OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), placeholder = { Text(t("notePlaceholder")) }, singleLine = true,
@@ -242,7 +278,7 @@ fun TxEditor(initial: Transaction?, type0: TxType, onDone: () -> Unit) {
                 LazyVerticalGrid(GridCells.Fixed(4), Modifier.heightIn(max = 520.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(CATEGORIES.filter { it.id != "transfer" && it.income == (type == TxType.INCOME) }, key = { it.id }) { c ->
                         val on = c.id == cat
-                        Column(Modifier.tap(onClick = { cat = c.id; pick = null }).clip(RoundedCornerShape(16.dp)).background(if (on) catColor(c).copy(alpha = 0.22f) else Bg)
+                        Column(Modifier.tap(onClick = { cat = c.id; catTouched = true; pick = null }).clip(RoundedCornerShape(16.dp)).background(if (on) catColor(c).copy(alpha = 0.22f) else Bg)
                             .padding(vertical = 12.dp, horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(icon(c.icon), null, tint = catColor(c), modifier = Modifier.size(24.dp))
                             Spacer(Modifier.height(6.dp))

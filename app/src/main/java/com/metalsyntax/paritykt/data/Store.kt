@@ -213,7 +213,21 @@ object Store {
     /** Copia los sobres del mes anterior al mes [m]. */
     fun copyBudgets(from: YearMonth, m: YearMonth) = commit(data.copy(budgets = data.activeBudgets(from)
         .map { it.copy(month = m.toString(), updatedAt = nowIso()) }.fold(data.budgets) { acc, b -> acc.upsert(b) { it.key } }))
-    fun saveGoal(g: Goal) = commit(data.copy(goals = data.goals.upsert(g.copy(updatedAt = nowIso(), completed = g.savedAmount >= g.targetAmount)) { it.id }))
+    /** Se llama cuando una meta pasa a lograda (Modern celebra). */
+    var onGoalReached: ((Goal) -> Unit)? = null
+
+    fun saveGoal(g: Goal) {
+        val was = data.goals.firstOrNull { it.id == g.id }?.completed == true
+        val ng = g.copy(updatedAt = nowIso(), completed = g.savedAmount >= g.targetAmount)
+        commit(data.copy(goals = data.goals.upsert(ng) { it.id }))
+        if (!was && ng.completed) onGoalReached?.invoke(ng)
+    }
+
+    /** Deshacer un borrado: vuelve a aplicar la transacción y quita su lápida (para que la sincronización no la borre de nuevo). */
+    fun restoreTx(t: Transaction) {
+        commit(data.copy(tombstones = data.tombstones.filter { it.id != t.id }))
+        saveTx(t)
+    }
     fun deleteGoal(id: String) = commit(data.copy(goals = data.goals.filter { it.id != id }, deleted = gone("goal", id)))
 
     // ------------------------------------------------------------------------------------------ compras

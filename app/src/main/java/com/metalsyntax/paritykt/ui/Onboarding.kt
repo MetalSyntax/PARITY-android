@@ -108,7 +108,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                                 Prefs.setDisplay(it)
                             }
                         }
-                        3 -> OptionGrid(Route.entries.filter { it != Route.HOME }, { it in Prefs.favorites }, columns = 2, container = Surface1,
+                        3 -> OptionGrid(Route.entries.filter { it != Route.HOME && it != Route.HUB }, { it in Prefs.favorites }, columns = 2, container = Surface1,
                             enabled = { it in Prefs.favorites || Prefs.favorites.size < 3 },
                             onPick = { r -> Prefs.saveFavorites(if (r in Prefs.favorites) Prefs.favorites - r else Prefs.favorites + r) }) { r, on ->
                             Icon(routeIcon(r), null, tint = if (on) Color.White else Muted, modifier = Modifier.size(20.dp))
